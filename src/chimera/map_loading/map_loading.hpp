@@ -3,9 +3,11 @@
 #ifndef CHIMERA_MAP_LOADING_HPP
 #define CHIMERA_MAP_LOADING_HPP
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <string>
 
 namespace Chimera {
     struct LoadedMap {
@@ -17,26 +19,11 @@ namespace Chimera {
         std::size_t decompressed_size;
         std::size_t loaded_size;
         std::size_t file_size;
-        std::filesystem::file_time_type timestamp; // time it was modified
+        std::filesystem::file_time_type timestamp;
     };
-    
-    /**
-     * Get the loaded map
-     * @param  name name of map
-     * @return      reference to map if found, or nullptr
-     */
-    LoadedMap *get_loaded_map(const char *name) noexcept;
 
-    /**
-     * Set up loading maps outside of the maps directory
-     */
+    LoadedMap *get_loaded_map(const char *name) noexcept;
     void set_up_map_loading();
-    
-    /**
-     * Load the map
-     * @param map_name map to load
-     * @return         loaded map
-     */
     LoadedMap *load_map(const char *map_name);
 }
 #endif
