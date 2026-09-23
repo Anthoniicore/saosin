@@ -36,6 +36,7 @@ set(COMMAND_FILES
     ${COMMAND_DIR}/client/debug/show_coordinates.cpp
     ${COMMAND_DIR}/client/debug/show_fps.cpp
     # vk.cpp removed: requires host Vulkan headers and was dropped upstream (SnowyMouse master)
+    ${COMMAND_DIR}/client/enhancement/ambient_volume.cpp
     ${COMMAND_DIR}/client/enhancement/block_all_bullshit.cpp
     ${COMMAND_DIR}/client/enhancement/block_buffering.cpp
     ${COMMAND_DIR}/client/enhancement/block_extra_weapon.cpp
