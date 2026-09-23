@@ -3,6 +3,7 @@
 #ifndef CHIMERA_BOOKMARK_HPP
 #define CHIMERA_BOOKMARK_HPP
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <utility>
@@ -39,36 +40,10 @@ namespace Chimera {
         }
     };
 
-    /**
-     * Query server?
-     * @param  what server to query
-     * @return      packet
-     */
     QueryPacketDone query_server(const Bookmark &what);
-
-    /**
-     * Get the latest connection made
-     * @return reference to the latest connection
-     */
     const Bookmark &get_latest_connection() noexcept;
-
-    /**
-     * Set up server history
-     */
     void set_up_server_history() noexcept;
-
-    /**
-     * Load the bookmarks file
-     * @param file file to load from
-     * @return     array of bookmarks and the server names
-     */
     std::vector<Bookmark> load_bookmarks_file(const char *file) noexcept;
-
-    /**
-     * Save the bookmarks file
-     * @param file      file to save to
-     * @param bookmarks bookmarks to save
-     */
     void save_bookmarks_file(const char *file, const std::vector<Bookmark> &bookmarks) noexcept;
 }
 
