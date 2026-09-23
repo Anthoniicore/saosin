@@ -1,79 +1,44 @@
-name: build
+name: Build Chimera
 
 on:
-  workflow_dispatch:
   push:
-  pull_request:
+    branches: [ master, fastload-rewrite ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: "Build Saosin (Chimera fastload-rewrite base)"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
-      - name: "Install deps"
-        run: |-
-          sudo apt-get update
-          sudo apt-get install -y software-properties-common gnupg build-essential mingw-w64 cmake python3 p7zip-full git libvulkan-dev
-
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          submodules: recursive
 
-      - name: "Compile"
-        env:
-          LDFLAGS: -fstack-protector
-        run: |-
-          printf '%s\n' \
-            'set(CMAKE_SYSTEM_NAME Windows)' \
-            'set(TOOLCHAIN i686-w64-mingw32)' \
-            'set(CMAKE_C_COMPILER ${TOOLCHAIN}-gcc-posix)' \
-            'set(CMAKE_CXX_COMPILER ${TOOLCHAIN}-g++-posix)' \
-            'set(CMAKE_RC_COMPILER ${TOOLCHAIN}-windres)' \
-            'set(CMAKE_AR ${TOOLCHAIN}-gcc-ar-posix)' \
-            'set(CMAKE_RANLIB ${TOOLCHAIN}-gcc-ranlib-posix)' \
-            'set(CMAKE_FIND_ROOT_PATH /usr/${TOOLCHAIN})' \
-            'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' \
-            'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' \
-            'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)' \
-            'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)' \
-          > toolchain.cmake
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build mingw-w64
 
-          cmake . -B build \
+      - name: Configure
+        run: |
+          cmake -S . -B build -G "Unix Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
-            -DCMAKE_INSTALL_PREFIX=build \
-            -DCMAKE_CXX_FLAGS="-I/usr/include"
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=i686-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=i686-w64-mingw32-g++
 
-          cmake --build build -j "$(nproc)" --target monolith
+      - name: Build
+        run: cmake --build build --config Release -j2
 
-      - name: "Verify DLL"
-        run: |-
-          test -f ./build/strings.dll
-          file ./build/strings.dll
-          ls -lh ./build/strings.dll
-
-      - name: "Strip symbols"
-        if: "startsWith(github.ref, 'refs/tags/')"
-        run: |-
-          i686-w64-mingw32-strip ./build/strings.dll
-
-      - name: "Package"
-        id: package
-        run: |-
-          7z a -mx=9 saosin.7z LICENSE README.md chimera.ini fonts ./build/strings.dll
-          echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          echo "SHA=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
-
-      - name: "Upload artifact"
-        if: always()
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: saosin-${{ steps.package.outputs.SHA || github.sha }}
+          name: chimera-build
           path: |
-            ./saosin.7z
-            ./build/strings.dll
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
+            build/**/*.dll
+            build/**/*.exe
+          if-no-files-found: warn
