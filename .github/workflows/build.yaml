@@ -47,7 +47,8 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
             -DCMAKE_INSTALL_PREFIX=build
 
-          cmake --build build -j "$(nproc)"
+          # Only build the game DLL (and its deps). Skip hac_map_downloader_test.
+          cmake --build build -j "$(nproc)" --target monolith
 
       - name: "Strip symbols"
         if: "startsWith(github.ref, 'refs/tags/')"
