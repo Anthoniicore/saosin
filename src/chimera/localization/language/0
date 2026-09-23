@@ -194,8 +194,6 @@ chimera_map_info_command_map_protected                                          
 chimera_map_info_command_mismatched                                             Mismatched
 chimera_map_info_command_target_engine                                          Target engine
 chimera_widescreen_fix_command_warning_cannot_disable_font_override_enabled     Cannot disable widescreen fix while font override is enabled.
-chimera_spam_to_join_command_help                                               Set whether or not to retry automatically if the server is full.
-chimera_spam_to_join_retrying                                                   Server is full! Retrying...\n(Hold ESCAPE to cancel)
 
 chimera_lua_reload_scripts_command_help                                         Reload all Lua scripts.
 chimera_lua_scripts_were_reloaded                                               Lua scripts have been reloaded.
