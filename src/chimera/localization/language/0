@@ -179,7 +179,30 @@ chimera_teleport_help                                                           
 chimera_teleport_invalid_arguments                                              Invalid arguments were given.
 chimera_teleport_dead                                                           Failed to teleport: target is not alive
 chimera_teleport_dead_self                                                      Failed to teleport: player to teleport is not alive
-chimera_teleport_success_mp                                                     *flicks %S to %f %f %f*
-chimera_teleport_success_sp                                                     *flicks you to %f %f %f*
-chimera_map_info_command_mismatched                                             VAP! >.< *flicks map with tailfin*
+chimera_teleport_success_mp                                                     Teleported %S to %f %f %f
+chimera_teleport_success_sp                                                     Teleported to %f %f %f
+chimera_map_info_command_help                                                   Show information about the currently loaded map.
+chimera_map_info_command_map_name                                               Name
+chimera_map_info_command_map_build                                              Build
+chimera_map_info_command_compressed                                             Compressed
+chimera_map_info_command_map_size                                               Size
+chimera_map_info_command_uncompressed_map_size                                  Uncompressed size
+chimera_map_info_command_ram_buffer                                             RAM buffer
+chimera_map_info_command_map_tag_count                                          Tag count
+chimera_map_info_command_map_tag_data_size                                      Tag data size
+chimera_map_info_command_map_protected                                          Protected
+chimera_map_info_command_mismatched                                             Mismatched
+chimera_map_info_command_target_engine                                          Target engine
+chimera_widescreen_fix_command_warning_cannot_disable_font_override_enabled     Cannot disable widescreen fix while font override is enabled.
+chimera_spam_to_join_command_help                                               Set whether or not to retry automatically if the server is full.
+chimera_spam_to_join_retrying                                                   Server is full! Retrying...\n(Hold ESCAPE to cancel)
+
+chimera_lua_reload_scripts_command_help                                         Reload all Lua scripts.
+chimera_lua_scripts_were_reloaded                                               Lua scripts have been reloaded.
+chimera_lua_warning_script_too_updated                                          %s was made for a newer version of Chimera.
+chimera_lua_warning_script_too_outdated                                         %s was made for an older version of Chimera.
+chimera_lua_warning_script_possibly_not_work                                    It may not work as expected.
+chimera_lua_error_failed_to_load_script                                         Failed to load %s
+chimera_lua_error_draw_text_invalid_font_id                                     invalid font tag id in draw_text
+chimera_lua_error_draw_text_invalid_alignment                                   invalid text alignment in draw_text
 chimera_ambient_volume_command_help                                             Set ambient/device_nature/device_machinery gain (0.0-1.0). false restores stock.
