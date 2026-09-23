@@ -6,7 +6,7 @@
 #include <vector>
 #include "../../../output/output.hpp"
 
-#include <vulkan/vulkan.h>
+#include <vulkan.h>
 
 namespace Chimera {
     bool vk_command(int, const char **) noexcept {
