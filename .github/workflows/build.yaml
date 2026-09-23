@@ -1,5 +1,6 @@
 name: build
 
+# Run manually and on every push / PR
 on:
   workflow_dispatch:
   push:
@@ -14,17 +15,18 @@ jobs:
       - name: "Install deps"
         run: |-
           sudo apt-get update
-          sudo apt-get install -y software-properties-common gnupg build-essential mingw-w64 cmake python3 p7zip-full git libvulkan-dev
+          sudo apt-get install -y software-properties-common gnupg build-essential mingw-w64 cmake python3 p7zip-full git
 
       - name: "Checkout"
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # needed for a valid build number
 
       - name: "Compile"
         env:
           LDFLAGS: -fstack-protector
         run: |-
+          # 32-bit MinGW toolchain for Halo CE
           printf '%s\n' \
             'set(CMAKE_SYSTEM_NAME Windows)' \
             'set(TOOLCHAIN i686-w64-mingw32)' \
@@ -43,9 +45,9 @@ jobs:
           cmake . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
-            -DCMAKE_INSTALL_PREFIX=build \
-            -DCMAKE_CXX_FLAGS="-isystem /usr/include/vulkan"
+            -DCMAKE_INSTALL_PREFIX=build
 
+          # strings.dll only (skip test targets)
           cmake --build build -j "$(nproc)" --target monolith
 
       - name: "Verify DLL"
@@ -67,13 +69,8 @@ jobs:
           echo "SHA=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
       - name: "Upload artifact"
-        if: always()
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: saosin-${{ steps.package.outputs.SHA || github.sha }}
-          path: |
-            ./saosin.7z
-            ./build/strings.dll
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
+          name: saosin-${{ steps.package.outputs.SHA }}
+          path: ./saosin.7z
