@@ -14,7 +14,7 @@ jobs:
       - name: "Install deps"
         run: |-
           sudo apt-get update
-          sudo apt-get install -y software-properties-common gnupg build-essential mingw-w64 cmake python3 p7zip-full git
+          sudo apt-get install -y software-properties-common gnupg build-essential mingw-w64 cmake python3 p7zip-full git libvulkan-dev
 
       - name: "Checkout"
         uses: actions/checkout@v4
@@ -36,14 +36,15 @@ jobs:
             'set(CMAKE_FIND_ROOT_PATH /usr/${TOOLCHAIN})' \
             'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' \
             'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' \
-            'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' \
+            'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)' \
             'set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)' \
           > toolchain.cmake
 
           cmake . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake \
-            -DCMAKE_INSTALL_PREFIX=build
+            -DCMAKE_INSTALL_PREFIX=build \
+            -DCMAKE_CXX_FLAGS="-I/usr/include"
 
           cmake --build build -j "$(nproc)" --target monolith
 
