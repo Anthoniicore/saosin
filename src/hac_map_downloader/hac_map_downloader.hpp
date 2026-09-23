@@ -5,6 +5,7 @@
 
 #include <mutex>
 #include <vector>
+#include <string>
 #include <cstdlib>
 #include <chrono>
 #include <thread>
