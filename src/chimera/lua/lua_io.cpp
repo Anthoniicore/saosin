@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <windows.h>
+#include <cstdint>
 #include <cstring>
-#include "../localization/localization.hpp"
 #include "lua_io.hpp"
+
+#include "../localization/localization.hpp"
 
 namespace Chimera {
     #define bail_if_not_unlocked \
