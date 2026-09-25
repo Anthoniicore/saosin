@@ -140,6 +140,9 @@ chimera_fov_cinematic_command_help                                              
 chimera_fov_error_invalid_fov_given                                             Invalid FOV given. Expected \"auto\", <FOV>, <FOV>v, or \"off\"
 chimera_fp_reverb_command_help                                                  Set whether or not first person sounds should have reverb when EAX is enabled.
 chimera_interpolate_help                                                        Improve the appearance of object movement and animation. (CPU intensive!)
+chimera_hitreg_autoaim_width_command_help                              Set biped autoaim_width (bullet magnetism pill). 0.05 recommended; false restores stock.
+chimera_hitreg_action_queue_ticks_command_help                         Read/set sv|cl action queue tick limits (1-128). Stock is often 6.
+chimera_hitreg_allow_client_projectiles_command_help                   Toggle allow_client_side_weapon_projectiles global.
 chimera_language_command_available_languages                                    Available languages:
 chimera_language_command_error_invalid_language                                 Invalid language %s.
 chimera_language_command_help                                                   Set the language of Chimera.
