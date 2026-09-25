@@ -215,6 +215,11 @@ namespace Chimera {
         ADD_COMMAND("chimera_block_equipment_rotation", "chimera_category_server", "core_null_rotation", block_equipment_rotation_command, true, 0, 1);
         ADD_COMMAND("chimera_allow_all_passengers", "chimera_category_server", "core_mtv", allow_all_passengers_command, true, 0, 1);
 
+        // Hitreg (autoaim width + net action queues; no projectile bend hook)
+        ADD_COMMAND("chimera_hitreg_autoaim_width", "chimera_category_enhancement", "client", hitreg_autoaim_width_command, true, 0, 1);
+        ADD_COMMAND("chimera_hitreg_action_queue_ticks", "chimera_category_enhancement", "client", hitreg_action_queue_ticks_command, false, 0, 2);
+        ADD_COMMAND("chimera_hitreg_allow_client_projectiles", "chimera_category_enhancement", "client", hitreg_allow_client_projectiles_command, true, 0, 1);
+
         // Visuals
         ADD_COMMAND("chimera_af", "chimera_category_visual", "client_af", af_command, true, 0, 1);
         ADD_COMMAND("chimera_block_auto_center", "chimera_category_visual", "client", block_auto_center_command, true, 0, 1);
