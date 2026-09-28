@@ -33,8 +33,11 @@ namespace Chimera {
     // This is the assumed tick rate of the first person camera.
     static float *first_person_camera_tick_rate = nullptr;
 
-    // Set for if interpolation is enabled
+    // Set for if interpolation hooks are currently enabled.
     bool interpolation_enabled = false;
+
+    // Rendering mode. OFF keeps the hooks disabled.
+    static InterpolationMode interpolation_mode = InterpolationMode::OFF;
 
     static void on_tick() noexcept {
         // Prevent interpolation when the game is paused
@@ -84,6 +87,11 @@ namespace Chimera {
     }
 
     void set_up_interpolation() noexcept {
+        // The command can switch between modes repeatedly, so make setup idempotent.
+        if(interpolation_enabled) {
+            return;
+        }
+
         static auto *fp_interp_ptr = get_chimera().get_signature("fp_interp_sig").data();
         static Hook fp_interp_hook;
         first_person_camera_tick_rate = *reinterpret_cast<float **>(get_chimera().get_signature("fp_cam_tick_rate_sig").data() + 2);
@@ -99,6 +107,11 @@ namespace Chimera {
     }
 
     void disable_interpolation() noexcept {
+        if(!interpolation_enabled) {
+            interpolation_mode = InterpolationMode::OFF;
+            return;
+        }
+
         get_chimera().get_signature("fp_interp_sig").rollback();
         remove_tick_event(on_tick);
         remove_preframe_event(on_preframe);
@@ -106,5 +119,23 @@ namespace Chimera {
         remove_precamera_event(interpolate_camera_before);
         remove_camera_event(interpolate_camera_after);
         interpolation_enabled = false;
+        interpolation_mode = InterpolationMode::OFF;
+    }
+
+    void set_interpolation_mode(InterpolationMode mode) noexcept {
+        if(mode == InterpolationMode::OFF) {
+            disable_interpolation();
+            return;
+        }
+
+        if(!interpolation_enabled) {
+            set_up_interpolation();
+        }
+
+        interpolation_mode = mode;
+    }
+
+    InterpolationMode get_interpolation_mode() noexcept {
+        return interpolation_mode;
     }
 }
