@@ -53,6 +53,7 @@
 #include "fix/force_crash.hpp"
 #include "fix/leak_descriptors.hpp"
 #include "fix/motion_sensor_fix.hpp"
+#include "fix/no_lead.hpp"
 #include "fix/nav_numbers.hpp"
 #include "fix/timer_offset.hpp"
 #include "fix/sane_defaults.hpp"
@@ -282,6 +283,11 @@ namespace Chimera {
                 set_up_controller();
             }
             else {
+                if(this->feature_present("server")) {
+                    // Enable server-side lag compensation on dedicated Halo CE.
+                    // The no-lead hook is isolated to the dedicated-server build.
+                    set_up_no_lead_fix();
+                }
                 enable_output(true);
             }
 
