@@ -4,6 +4,7 @@
 #include "../../halo_data/object.hpp"
 #include "../../math_trig/math_trig.hpp"
 #include "../../chimera.hpp"
+#include <cmath>
 
 #include "interpolate.hpp"
 
@@ -117,23 +118,78 @@ namespace Chimera {
             interpolate_object(current_tick_object.children[i]);
         }
 
-        // Interpolate the center thingymajigabobit.
-        interpolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress);
-
         auto *nodes = object->nodes();
+        if(!nodes) {
+            return;
+        }
+
+        // EXTRAPOLATION mode is deliberately visual-only. The authoritative
+        // Halo object remains on the current tick and is restored in
+        // interpolate_object_after().
+        //
+        // Only unparented bipeds use this path. This avoids touching vehicles
+        // or child-object transforms where parent-relative coordinates could
+        // otherwise make prediction unsafe.
+        if(get_interpolation_mode() == InterpolationMode::EXTRAPOLATION &&
+           object->type == ObjectType::OBJECT_TYPE_BIPED &&
+           object->parent.is_null()) {
+            Point3D delta {
+                object->velocity.x * interpolation_tick_progress,
+                object->velocity.y * interpolation_tick_progress,
+                object->velocity.z * interpolation_tick_progress
+            };
+
+            // Keep the prediction within the same per-tick movement envelope
+            // already used by the traditional biped interpolation safety gate.
+            constexpr float MAX_BIPED_EXTRAPOLATION = 2.5F;
+            float delta_distance_squared = distance_squared(delta.x, delta.y, delta.z, 0.0F, 0.0F, 0.0F);
+            float max_delta = MAX_BIPED_EXTRAPOLATION * interpolation_tick_progress;
+            if(delta_distance_squared > max_delta * max_delta) {
+                float delta_distance = std::sqrt(delta_distance_squared);
+                if(delta_distance > 0.0F) {
+                    float scale = max_delta / delta_distance;
+                    delta.x *= scale;
+                    delta.y *= scale;
+                    delta.z *= scale;
+                }
+            }
+
+            // Translate the current-tick geometry forward by only the
+            // fraction of the tick that has elapsed. No previous-tick
+            // position is rendered in this mode.
+            object->center_position.x = current_tick_object.center.x + delta.x;
+            object->center_position.y = current_tick_object.center.y + delta.y;
+            object->center_position.z = current_tick_object.center.z + delta.z;
+
+            for(std::size_t n = 0; n < current_tick_object.node_count; n++) {
+                auto &node = nodes[n];
+                auto &node_current = current_tick_object.nodes[n];
+
+                node.position.x = node_current.position.x + delta.x;
+                node.position.y = node_current.position.y + delta.y;
+                node.position.z = node_current.position.z + delta.z;
+
+                // Do not interpolate the animation backwards in time.
+                // Scale/rotation stay at the current authoritative tick.
+                node.scale = node_current.scale;
+                node.rotation = node_current.rotation;
+            }
+
+            return;
+        }
+
+        // Traditional previous-tick -> current-tick interpolation.
+        interpolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress);
 
         for(std::size_t n = 0; n < current_tick_object.node_count; n++) {
             auto &node = nodes[n];
             auto &node_current = current_tick_object.nodes[n];
             auto &node_before = previous_tick_object.nodes[n];
 
-            // Interpolate position
             interpolate_point(node_before.position, node_current.position, node.position, interpolation_tick_progress);
 
-            // Interpolate scale
             node.scale = node_before.scale + (node_current.scale - node_before.scale) * interpolation_tick_progress;
 
-            // Interpolate it all!
             Quaternion orientation_current = node_current.rotation;
             Quaternion orientation_before = node_before.rotation;
             Quaternion orientation_interpolated;
