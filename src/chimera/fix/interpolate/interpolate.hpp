@@ -5,10 +5,12 @@
 
 namespace Chimera {
     /**
-     * If true, rendered bipeds/vehicles are extrapolated one tick ahead (see
-     * object.cpp) so what you see matches where the object will be when the
-     * next tick simulates it. Enabled by default; turn it off with
-     * chimera_interpolate_extrapolate false to go back to plain interpolation.
+     * If true, rendered bipeds/vehicles are extrapolated half a tick ahead
+     * with a per-frame smoothed offset (see object.cpp), so what you see is
+     * close to where the object will be when the next tick simulates it,
+     * while the motion stays as fluid as plain interpolation. Enabled by
+     * default; turn it off with chimera_interpolate_extrapolate false to go
+     * back to plain interpolation.
      */
     extern bool interpolate_extrapolate;
 

@@ -100,7 +100,7 @@ chimera_fov_cinematic_command_help                                              
 chimera_fov_error_invalid_fov_given                                             FOV inválido. Se esperaba \"auto\", <FOV>, <FOV>v, o \"off\"
 chimera_fp_reverb_command_help                                                  Establece si los sonidos en primera persona deben tener reverb cuando EAX está habilitado.
 chimera_hitreg_forgiveness_command_help                                         Activa el perdón de hitreg: los disparos que pasan muy cerca del enemigo se corrigen hacia él. true/false, o un cono de perdón en grados (0-10).
-chimera_interpolate_extrapolate_command_help                                    Dibuja los objetos un tick por delante de su posición interpolada para que lo que ves coincida con donde estará el enemigo.
+chimera_interpolate_extrapolate_command_help                                    Dibuja los objetos medio tick por delante de su posición interpolada, suavizado para que el movimiento siga siendo fluido como la interpolación normal.
 chimera_interpolate_help                                                        Mejora la apariencia del movimiento y animación de objetos. (¡Intensivo en CPU!)
 chimera_language_command_available_languages                                    Idiomas disponibles:
 chimera_language_command_error_invalid_language                                 Idioma inválido %s.
