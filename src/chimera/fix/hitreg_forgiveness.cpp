@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <cmath>
-#include <cstring>
 
 #include "hitreg_forgiveness.hpp"
 #include "../chimera.hpp"
@@ -116,15 +115,15 @@ namespace Chimera {
     static bool forgiveness_weapon_tags_patched = false;
 
     // Is a map's tag data actually loaded? The tag header lives at a
-    // fixed address (0x40440000) and literally says "tags" when a map
-    // is loaded. NOTE: this check alone is NOT enough during DLL
-    // init, and that is exactly why the 575f51d build still did not
-    // load. Chimera's constructor runs at DLL load, before any map
-    // loads, and set_up_hitreg_forgiveness() calls
-    // apply_forgiveness_weapon_angles() from there -- and this
+    // fixed address (0x40440000) and carries the "tags" magic at
+    // +0x24 when a map is loaded. NOTE: this check alone is NOT
+    // enough during DLL init, and that is exactly why the 575f51d
+    // build still did not load. Chimera's constructor runs at DLL
+    // load, before any map loads, and set_up_hitreg_forgiveness()
+    // calls apply_forgiveness_weapon_angles() from there -- and this
     // function itself reads the header at 0x40440000 to check it.
     // Before the first map load that address is not mapped yet, so
-    // the memcmp faults right there in the guard, during DLL init,
+    // the check faults right there in the guard, during DLL init,
     // and Windows reports "strings.dll is missing" even though the
     // file is right there. The 562f3b8 build crashed the same way by
     // reading the tag array directly; 575f51d only moved the fault
@@ -133,9 +132,21 @@ namespace Chimera {
     // not even this header check -- until forgiveness_map_loaded
     // says a map has actually loaded. This function is only a second
     // layer, called after that gate passes.
+    //
+    // The magic is a fourcc, NOT the ASCII string "tags": Halo
+    // fourccs put the first character in the most significant byte,
+    // so 'tags' as a uint32 is 0x74616773 (1952540531, per the map
+    // format doc), which is stored little-endian as the bytes
+    // "sgat". The 575f51d guard compared the raw bytes against the
+    // string "tags" with memcmp, which can never match a valid map
+    // -- that is why `show` reported tags 0 / weapon tags 0 and
+    // "tag not found" even with a map fully loaded (Blood Gulch,
+    // pistol in hand). Compare the uint32 value instead. The
+    // raw-ASCII value 0x73676174 is also accepted, in case some
+    // tool writes the magic as a plain string.
     static bool forgiveness_tags_loaded() noexcept {
         const auto &header = get_tag_data_header();
-        return std::memcmp(&header.tags_literal, "tags", 4) == 0 &&
+        return (header.tags_literal == 0x74616773 || header.tags_literal == 0x73676174) &&
                header.tag_array != nullptr &&
                header.tag_count > 0 && header.tag_count < 100000;
     }
@@ -292,21 +303,22 @@ namespace Chimera {
         // BEFORE the game has copied the map's tags into 0x40440000
         // (the disassembly of 0x443600 shows it is itself a
         // tag-loading function: it calls the 0x443410 tag-entry helper
-        // and iterates tag entries). So the apply below usually finds
-        // no tags yet and returns early -- that is expected, and the
-        // in-game retry (retry_forgiveness_weapon_angles) is what
-        // actually patches the tag once the map is loaded. Do NOT
-        // trust the flag alone as "tags are ready".
+        // and iterates tag entries). Do NOT trust the flag alone as
+        // "tags are ready", and do NOT apply the angles here: on the
+        // first map load the header is still zeroes (the tag region
+        // was just allocated), and on a map change it is still the
+        // PREVIOUS map's header, so applying here would patch stale
+        // tags and mark the module as patched, and the in-game retry
+        // would then never run for the new map. Just forget the old
+        // pointers and let the retry
+        // (retry_forgiveness_weapon_angles, from the tick event once
+        // the player is alive in the loaded map) do the patching.
         forgiveness_map_loaded = true;
         // Forget any tag patched in a previous map: after a map change
-        // the stored pointer is stale, and the apply below usually
-        // no-ops (tags not in yet), so the stale pointer must not be
-        // trusted afterwards. The retry re-patches once the new map
-        // is actually loaded.
+        // the stored pointer is stale and must not be trusted.
         forgiveness_pistol_tag_data = nullptr;
         forgiveness_patched_weapon_tag_count = 0;
         forgiveness_weapon_tags_patched = false;
-        apply_forgiveness_weapon_angles();
     }
 
     // Retry the pistol patch once the player is actually in a loaded
