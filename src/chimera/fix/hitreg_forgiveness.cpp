@@ -52,6 +52,35 @@ namespace Chimera {
     static std::uint64_t forgiveness_aim_drifted = 0;
     static float forgiveness_last_aim_drift_deg = -1.0f;
 
+    // Outgoing-aim diagnostic (read-only): the look increments the
+    // client sends to the server, vs the Controls aim deltas the
+    // look injection writes, captured at the last injection.
+    // The client does NOT send absolute yaw/pitch: it sends player
+    // actions, and the aim in an action is the per-tick look
+    // increment (yaw and pitch deltas, in radians). They live in
+    // the per-player action struct at 0x6ABB38 (stride 0x85C,
+    // index 0 = local player): +0x08 is the yaw increment,
+    // +0x0C the pitch increment. Evidence from haloce.exe: the
+    // game's own get_digital_yaw_increment (VA 0x484950) and
+    // get_digital_pitch_increment (VA 0x484A20) read exactly these
+    // two floats and convert radians to milli-turns (x1000/2pi),
+    // and the action-apply function (0x48F8xx-0x4916xx, the one
+    // containing controls_sig) adds them into Controls.aim_left /
+    // aim_up (0x6AD4C0/0x6AD4C4). The look injection writes only
+    // Controls, never these increments -- which is why the injected
+    // correction never reaches the action the server receives. These
+    // addresses are inside the game's own image (0x400000-0x82C000),
+    // so they are always mapped and safe to read. Captured only
+    // while firing at a live target (in the pre-tick injection),
+    // so `show` reports the values from the last firing tick.
+    static constexpr std::uintptr_t FORGIVENESS_OUTGOING_YAW_INCREMENT_ADDRESS = 0x6ABB40;
+    static constexpr std::uintptr_t FORGIVENESS_OUTGOING_PITCH_INCREMENT_ADDRESS = 0x6ABB44;
+    static bool forgiveness_have_last_outgoing_aim = false;
+    static float forgiveness_last_out_yaw_deg = 0.0f;
+    static float forgiveness_last_out_pitch_deg = 0.0f;
+    static float forgiveness_last_controls_aim_left_deg = 0.0f;
+    static float forgiveness_last_controls_aim_up_deg = 0.0f;
+
     // Weapon-tag route: the part of the forgiveness that actually
     // reaches the shot. The aim/camera/look nudges above are all
     // erased by the engine, which re-derives the aim every tick from
@@ -505,6 +534,20 @@ namespace Chimera {
         controls.aim_left += yaw_delta;
         controls.aim_up += pitch_delta;
         forgiveness_injections++;
+
+        // Read-only diagnostic: capture the outgoing look increments
+        // (the per-player action values at 0x6ABB40/0x6ABB44, in
+        // radians) and the Controls aim deltas, right after the
+        // injection, so `show` can compare what the action will be
+        // built from with what the injection wrote into Controls.
+        // The increments are the mouse look deltas for this tick
+        // (the injection never writes them); the Controls values
+        // are those deltas plus the nudge just injected.
+        forgiveness_last_out_yaw_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_YAW_INCREMENT_ADDRESS)));
+        forgiveness_last_out_pitch_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_PITCH_INCREMENT_ADDRESS)));
+        forgiveness_last_controls_aim_left_deg = static_cast<float>(RADIANS_TO_DEGREES(controls.aim_left));
+        forgiveness_last_controls_aim_up_deg = static_cast<float>(RADIANS_TO_DEGREES(controls.aim_up));
+        forgiveness_have_last_outgoing_aim = true;
     }
 
     // The nudge runs as a tick event, i.e. AFTER the engine's tick. This is
@@ -711,6 +754,21 @@ namespace Chimera {
         return forgiveness_last_aim_drift_deg;
     }
 
+    // Outgoing look increments vs Controls aim deltas, captured at
+    // the last look injection, in degrees. Returns false if no
+    // injection has fired yet (nothing captured). Read-only: this
+    // only reads game memory, it never writes it.
+    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &controls_aim_left_deg, float &controls_aim_up_deg) noexcept {
+        if(!forgiveness_have_last_outgoing_aim) {
+            return false;
+        }
+        out_yaw_deg = forgiveness_last_out_yaw_deg;
+        out_pitch_deg = forgiveness_last_out_pitch_deg;
+        controls_aim_left_deg = forgiveness_last_controls_aim_left_deg;
+        controls_aim_up_deg = forgiveness_last_controls_aim_up_deg;
+        return true;
+    }
+
     // Pistol autoaim angle currently applied, in degrees.
     // -1: no map loaded (menu, or DLL init) -- tag memory is never
     //     touched in this case.
@@ -807,5 +865,10 @@ namespace Chimera {
         forgiveness_aim_erased = 0;
         forgiveness_aim_drifted = 0;
         forgiveness_last_aim_drift_deg = -1.0f;
+        forgiveness_have_last_outgoing_aim = false;
+        forgiveness_last_out_yaw_deg = 0.0f;
+        forgiveness_last_out_pitch_deg = 0.0f;
+        forgiveness_last_controls_aim_left_deg = 0.0f;
+        forgiveness_last_controls_aim_up_deg = 0.0f;
     }
 }

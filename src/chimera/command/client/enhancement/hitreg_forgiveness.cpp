@@ -49,6 +49,20 @@ namespace Chimera {
             else {
                 console_output("last drift %.2f deg", static_cast<double>(last_drift));
             }
+            // Outgoing aim diagnostic (read-only): the look increments
+            // the client sends to the server, vs the Controls aim
+            // deltas the injection writes, both captured at the last
+            // injection (while firing). If the out values do not carry
+            // the nudge while the controls values do, the injection
+            // never reaches the action the server receives.
+            float out_yaw = 0.0f, out_pitch = 0.0f, ctl_left = 0.0f, ctl_up = 0.0f;
+            if(hitreg_forgiveness_last_outgoing_aim(out_yaw, out_pitch, ctl_left, ctl_up)) {
+                console_output("out yaw %.2f deg | pitch %.2f deg", static_cast<double>(out_yaw), static_cast<double>(out_pitch));
+                console_output("ctl aim %.2f | %.2f deg", static_cast<double>(ctl_left), static_cast<double>(ctl_up));
+            }
+            else {
+                console_output("out aim: none yet (fire at an enemy first)");
+            }
             return true;
         }
         if(std::strcmp(argv[0], "reset") == 0) {

@@ -53,6 +53,26 @@ namespace Chimera {
     void hitreg_forgiveness_reset_stats() noexcept;
 
     /**
+     * Outgoing look increments vs Controls aim deltas, captured at
+     * the last look injection, in degrees. Read-only diagnostic:
+     * it only reads game memory, it never writes it.
+     * - out_yaw_deg / out_pitch_deg: the per-player action look
+     *   increments (yaw and pitch deltas, in radians in the game)
+     *   for the local player -- the aim the client sends to the
+     *   server in the player action. The client does NOT send
+     *   absolute yaw/pitch; it sends these per-tick increments.
+     * - controls_aim_left_deg / controls_aim_up_deg: the Controls
+     *   aim deltas (what the look injection writes into) at the
+     *   same moment, for comparison.
+     * Returns false if no injection has fired yet (fire at an enemy
+     * first). If the out values do not include the nudge while the
+     * controls values do, the injection never reaches the action
+     * the server receives -- which is why the injected correction
+     * does not make off-red shots land.
+     */
+    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &controls_aim_left_deg, float &controls_aim_up_deg) noexcept;
+
+    /**
      * Pistol autoaim angle currently applied by the module, in
      * degrees, or -1 if no map is loaded (menu) and -2 if a map is
      * loaded but no weapon tag was found/patched. This is what
