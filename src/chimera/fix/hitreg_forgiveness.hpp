@@ -31,11 +31,22 @@ namespace Chimera {
      * - candidates: enemies found inside the cone while firing.
      * - no_candidate: scans while firing that found no enemy in the cone.
      * - last_nudge_angle: angle (degrees) of the last nudge, or -1 if none yet.
+     * - injections: times the pre-tick look injection fired.
+     * - aim_kept / aim_erased / aim_drifted: whether the previous tick's
+     *   correction was still on the aim when the next tick ran (kept),
+     *   was back to the pre-nudge aim (erased), or neither (drifted).
+     * - last_aim_drift: angle (degrees) between the aim and the last
+     *   nudged direction at the last check, or -1 if none yet.
      */
     std::uint64_t hitreg_forgiveness_nudges() noexcept;
     std::uint64_t hitreg_forgiveness_candidates() noexcept;
     std::uint64_t hitreg_forgiveness_no_candidate() noexcept;
     float hitreg_forgiveness_last_nudge_angle() noexcept;
+    std::uint64_t hitreg_forgiveness_injections() noexcept;
+    std::uint64_t hitreg_forgiveness_aim_kept() noexcept;
+    std::uint64_t hitreg_forgiveness_aim_erased() noexcept;
+    std::uint64_t hitreg_forgiveness_aim_drifted() noexcept;
+    float hitreg_forgiveness_last_aim_drift() noexcept;
     void hitreg_forgiveness_reset_stats() noexcept;
 }
 

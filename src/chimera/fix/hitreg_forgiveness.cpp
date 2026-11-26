@@ -6,13 +6,14 @@
 #include "../chimera.hpp"
 #include "../event/tick.hpp"
 #include "../halo_data/camera.hpp"
+#include "../halo_data/controls.hpp"
 #include "../halo_data/multiplayer.hpp"
 #include "../halo_data/object.hpp"
 #include "../halo_data/player.hpp"
 #include "../math_trig/math_trig.hpp"
 
 extern "C" {
-    // Module on/off flag: when 1, the post-tick forgiveness nudge is active.
+    // Module on/off flag: when 1, the forgiveness nudge is active.
     // It does not touch the engine's aim assist (mouse aim assist was
     // removed because it fought free mouse movement).
     std::uint8_t hitreg_forgiveness_on = 1;
@@ -30,57 +31,63 @@ namespace Chimera {
     static std::uint64_t forgiveness_no_candidate = 0;
     static float forgiveness_last_nudge_angle = -1.0f;
 
-    // The nudge runs as a tick event, i.e. AFTER the engine's tick. This is
-    // deliberate: the engine re-derives aim/desired_aim from the player's
-    // look input during its tick, so the old pre-tick write was discarded
-    // before the weapon fired (the diagnostic counters proved it: hundreds
-    // of nudges written, yet shots at a static target 36 m away never made
-    // the shield flare). Writing here makes the corrected aim the starting
-    // point for the next tick, so the next shot actually uses it.
-    static void hitreg_forgiveness_tick() noexcept {
-        // Only while the module is on and the cone allows a nudge.
-        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
-            return;
-        }
+    // How many times the pre-tick look injection fired.
+    static std::uint64_t forgiveness_injections = 0;
 
+    // Aim-persistence diagnostic: did the previous tick's correction survive
+    // the engine tick? Measured at the start of the post-tick event, before
+    // re-nudging, by comparing the current aim with the direction the last
+    // nudge wrote and with the aim from before that nudge. This is what the
+    // shot in the tick that just ran actually used.
+    // - aim_kept: the aim was still (within 0.5 deg) on the nudged direction.
+    // - aim_erased: the aim was back (within 0.5 deg) to the pre-nudge aim.
+    // - aim_drifted: the aim was neither (mouse moved, or partial erasure).
+    static bool forgiveness_have_pending_aim_check = false;
+    static Point3D forgiveness_last_nudged_dir = {};
+    static Point3D forgiveness_pre_nudge_aim = {};
+    static std::uint64_t forgiveness_aim_kept = 0;
+    static std::uint64_t forgiveness_aim_erased = 0;
+    static std::uint64_t forgiveness_aim_drifted = 0;
+    static float forgiveness_last_aim_drift_deg = -1.0f;
+
+    // Angle (degrees) between two normalized directions.
+    static float angle_between(const Point3D &a, const Point3D &b) noexcept {
+        float dot = a.x*b.x + a.y*b.y + a.z*b.z;
+        if(dot > 1.0f) dot = 1.0f;
+        if(dot < -1.0f) dot = -1.0f;
+        return static_cast<float>(RADIANS_TO_DEGREES(std::acos(static_cast<double>(dot))));
+    }
+
+    // Get the local player's live biped, or nullptr.
+    static UnitDynamicObject *get_client_unit() noexcept {
         auto *client_player = PlayerTable::get_player_table().get_client_player();
         if(!client_player) {
-            return;
+            return nullptr;
         }
-
         auto *unit = reinterpret_cast<UnitDynamicObject *>(ObjectTable::get_object_table().get_dynamic_object(client_player->object_id));
         if(!unit || unit->type != ObjectType::OBJECT_TYPE_BIPED) {
-            return;
+            return nullptr;
         }
+        return unit;
+    }
 
-        // Dead players don't shoot.
-        if(unit->health <= 0.0f) {
-            return;
-        }
-
-        // Only help while the trigger is actually held: this is a shooting
-        // aid, not something that drags the aim around when not firing.
-        if(!unit->primary_fire_button) {
-            return;
-        }
-
-        // Aim direction, normalized. The engine keeps this normalized, but be safe.
-        Point3D aim = unit->aim;
-        float aim_len = std::sqrt(aim.x*aim.x + aim.y*aim.y + aim.z*aim.z);
-        if(aim_len < 0.5f || aim_len > 2.0f) {
-            return;
-        }
-        aim.x /= aim_len; aim.y /= aim_len; aim.z /= aim_len;
-
-        // Eye position: the shooter's center is close to the head.
-        Point3D eye = unit->center_position;
-
+    // Shared enemy scan: find the best (smallest-angle) enemy inside the
+    // forgiveness cone. eye is the shooter's center, aim the current
+    // (normalized) aim, shooter the local player's biped (skipped as a
+    // target). On success, fills best_dir (normalized direction to the
+    // enemy's center) and best_angle (degrees) and returns true.
+    // candidates_out, if non-null, is set to the number of enemies found
+    // inside the cone (not just the best one).
+    static bool find_forgiveness_target(const Point3D &eye, const Point3D &aim, UnitDynamicObject *shooter, Point3D &best_dir, float &best_angle, std::uint64_t *candidates_out) noexcept {
         auto &object_table = ObjectTable::get_object_table();
         auto &player_table = PlayerTable::get_player_table();
+        auto *client_player = player_table.get_client_player();
+        if(!client_player) {
+            return false;
+        }
 
-        // Best (smallest-angle) enemy inside the forgiveness cone.
-        float best_angle = forgiveness_cone_degrees;
-        Point3D best_dir = {};
+        std::uint64_t candidates = 0;
+        best_angle = forgiveness_cone_degrees;
         bool found = false;
 
         for(std::size_t i = 0; i < object_table.current_size; i++) {
@@ -88,7 +95,7 @@ namespace Chimera {
             if(!target || target->type != ObjectType::OBJECT_TYPE_BIPED) {
                 continue;
             }
-            if(target == static_cast<BaseDynamicObject *>(unit)) {
+            if(target == static_cast<BaseDynamicObject *>(shooter)) {
                 continue;
             }
             auto *target_unit = reinterpret_cast<UnitDynamicObject *>(target);
@@ -120,13 +127,10 @@ namespace Chimera {
             }
             to_target.x /= dist; to_target.y /= dist; to_target.z /= dist;
 
-            float dot = aim.x*to_target.x + aim.y*to_target.y + aim.z*to_target.z;
-            if(dot > 1.0f) dot = 1.0f;
-            if(dot < -1.0f) dot = -1.0f;
-            float angle = static_cast<float>(RADIANS_TO_DEGREES(std::acos(static_cast<double>(dot))));
+            float angle = angle_between(aim, to_target);
             // Count every enemy inside the cone, not just the best one.
             if(angle < forgiveness_cone_degrees) {
-                forgiveness_candidates++;
+                candidates++;
             }
             if(angle < best_angle) {
                 best_angle = angle;
@@ -135,11 +139,165 @@ namespace Chimera {
             }
         }
 
-        if(!found) {
+        if(candidates_out) {
+            *candidates_out = candidates;
+        }
+        return found;
+    }
+
+    // Pre-tick look injection. Writing the derived aim (aim/desired_aim,
+    // camera) after the tick does not reach the shot: the engine re-derives
+    // the look every tick from the mouse look input (the per-tick
+    // aim_left/aim_up deltas), so the correction is erased by the next
+    // tick's look update before the weapon fires. The diagnostic counters
+    // proved it: the nudge was written hundreds of times, yet shots at a
+    // static target 36 m away never made the shield flare, and the reticle
+    // never snapped red on its own. The correction therefore has to enter
+    // through the look input itself: this injects the yaw/pitch needed to
+    // rotate the aim onto the enemy into the per-tick look deltas, so the
+    // engine's own look update applies the correction and the shot uses it.
+    // It only runs while firing and only inside the cone, so the mouse
+    // stays completely free when not shooting.
+    static void hitreg_forgiveness_pretick() noexcept {
+        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
+            return;
+        }
+
+        auto *unit = get_client_unit();
+        if(!unit) {
+            return;
+        }
+
+        // Dead players don't shoot.
+        if(unit->health <= 0.0f) {
+            return;
+        }
+
+        // Only help while the trigger is actually held.
+        if(!unit->primary_fire_button) {
+            return;
+        }
+
+        // Aim direction, normalized. The engine keeps this normalized, but be safe.
+        Point3D aim = unit->aim;
+        float aim_len = std::sqrt(aim.x*aim.x + aim.y*aim.y + aim.z*aim.z);
+        if(aim_len < 0.5f || aim_len > 2.0f) {
+            return;
+        }
+        aim.x /= aim_len; aim.y /= aim_len; aim.z /= aim_len;
+
+        // Eye position: the shooter's center is close to the head.
+        Point3D eye = unit->center_position;
+
+        Point3D best_dir = {};
+        float best_angle = 0.0f;
+        if(!find_forgiveness_target(eye, aim, unit, best_dir, best_angle, nullptr)) {
+            return;
+        }
+
+        // Yaw (rotation about the world Z axis, positive = left) and pitch
+        // (elevation difference, positive = up) needed to rotate the aim
+        // onto the target. The angles are small (<= the cone, <= 10 deg),
+        // so splitting the single rotation into yaw + pitch is accurate.
+        float cross_z = aim.x*best_dir.y - aim.y*best_dir.x;
+        float dot_xy = aim.x*best_dir.x + aim.y*best_dir.y;
+        float yaw_delta = std::atan2(cross_z, dot_xy);
+        float aim_z = aim.z;
+        if(aim_z > 1.0f) aim_z = 1.0f;
+        if(aim_z < -1.0f) aim_z = -1.0f;
+        float dir_z = best_dir.z;
+        if(dir_z > 1.0f) dir_z = 1.0f;
+        if(dir_z < -1.0f) dir_z = -1.0f;
+        float pitch_delta = std::asin(dir_z) - std::asin(aim_z);
+
+        // Safety net: never inject more than the cone in a single tick.
+        float max_delta = static_cast<float>(DEGREES_TO_RADIANS(forgiveness_cone_degrees));
+        if(yaw_delta > max_delta) yaw_delta = max_delta;
+        if(yaw_delta < -max_delta) yaw_delta = -max_delta;
+        if(pitch_delta > max_delta) pitch_delta = max_delta;
+        if(pitch_delta < -max_delta) pitch_delta = -max_delta;
+
+        auto &controls = get_controls();
+        controls.aim_left += yaw_delta;
+        controls.aim_up += pitch_delta;
+        forgiveness_injections++;
+    }
+
+    // The nudge runs as a tick event, i.e. AFTER the engine's tick. This is
+    // deliberate: the engine re-derives aim/desired_aim from the player's
+    // look input during its tick, so a pre-tick write to the derived aim is
+    // discarded before the weapon fires. Writing here makes the corrected
+    // aim the starting point for the next tick, so the next shot actually
+    // uses it. (The pre-tick look injection above is what makes the
+    // correction survive the tick's look update in the first place; this
+    // post-tick write refines the derived aim and camera to match.)
+    static void hitreg_forgiveness_tick() noexcept {
+        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
+            forgiveness_have_pending_aim_check = false;
+            return;
+        }
+
+        auto *unit = get_client_unit();
+        if(!unit) {
+            forgiveness_have_pending_aim_check = false;
+            return;
+        }
+
+        // Dead players don't shoot.
+        if(unit->health <= 0.0f) {
+            forgiveness_have_pending_aim_check = false;
+            return;
+        }
+
+        // Aim direction, normalized. The engine keeps this normalized, but be safe.
+        Point3D aim = unit->aim;
+        float aim_len = std::sqrt(aim.x*aim.x + aim.y*aim.y + aim.z*aim.z);
+        if(aim_len < 0.5f || aim_len > 2.0f) {
+            forgiveness_have_pending_aim_check = false;
+            return;
+        }
+        aim.x /= aim_len; aim.y /= aim_len; aim.z /= aim_len;
+
+        // Only help while the trigger is actually held: this is a shooting
+        // aid, not something that drags the aim around when not firing.
+        if(!unit->primary_fire_button) {
+            forgiveness_have_pending_aim_check = false;
+            return;
+        }
+
+        // Aim-persistence diagnostic: did the previous tick's correction
+        // survive the engine tick? Compare the current aim with the
+        // direction the last nudge wrote and with the aim from before that
+        // nudge. Measured here, before re-nudging, so it reflects what the
+        // shot in the tick that just ran actually used.
+        if(forgiveness_have_pending_aim_check) {
+            forgiveness_have_pending_aim_check = false;
+            float drift = angle_between(aim, forgiveness_last_nudged_dir);
+            float back = angle_between(aim, forgiveness_pre_nudge_aim);
+            forgiveness_last_aim_drift_deg = drift;
+            if(drift < 0.5f) {
+                forgiveness_aim_kept++;
+            }
+            else if(back < 0.5f) {
+                forgiveness_aim_erased++;
+            }
+            else {
+                forgiveness_aim_drifted++;
+            }
+        }
+
+        // Eye position: the shooter's center is close to the head.
+        Point3D eye = unit->center_position;
+
+        Point3D best_dir = {};
+        float best_angle = 0.0f;
+        std::uint64_t candidates = 0;
+        if(!find_forgiveness_target(eye, aim, unit, best_dir, best_angle, &candidates)) {
             // Firing, but no enemy inside the cone to pull onto.
             forgiveness_no_candidate++;
             return;
         }
+        forgiveness_candidates += candidates;
 
         // Pull the aim onto the enemy's center. The crosshair (camera) is
         // corrected together with the aim so the two agree: the camera's
@@ -149,6 +307,9 @@ namespace Chimera {
         // anyway). The camera is only touched in first person -- in a
         // vehicle or third person the camera is not the aim -- and only
         // while firing, so the mouse stays completely free when not shooting.
+        forgiveness_pre_nudge_aim = aim;
+        forgiveness_last_nudged_dir = best_dir;
+        forgiveness_have_pending_aim_check = true;
         unit->aim = best_dir;
         unit->desired_aim = best_dir;
         if(camera_type() == CameraType::CAMERA_FIRST_PERSON) {
@@ -176,17 +337,19 @@ namespace Chimera {
 
     void set_up_hitreg_forgiveness() noexcept {
         // The aim-assist hook itself is installed by set_up_aim_assist_fix();
-        // this module only arms the extra flag and the post-tick nudge.
+        // this module only arms the extra flag and the forgiveness events.
         set_hitreg_forgiveness_enabled(true);
     }
 
     void set_hitreg_forgiveness_enabled(bool enabled) noexcept {
         ::hitreg_forgiveness_on = enabled ? 1 : 0;
         if(enabled && !forgiveness_events_on) {
+            add_pretick_event(hitreg_forgiveness_pretick);
             add_tick_event(hitreg_forgiveness_tick);
             forgiveness_events_on = true;
         }
         else if(!enabled && forgiveness_events_on) {
+            remove_pretick_event(hitreg_forgiveness_pretick);
             remove_tick_event(hitreg_forgiveness_tick);
             forgiveness_events_on = false;
         }
@@ -222,10 +385,36 @@ namespace Chimera {
         return forgiveness_last_nudge_angle;
     }
 
+    std::uint64_t hitreg_forgiveness_injections() noexcept {
+        return forgiveness_injections;
+    }
+
+    std::uint64_t hitreg_forgiveness_aim_kept() noexcept {
+        return forgiveness_aim_kept;
+    }
+
+    std::uint64_t hitreg_forgiveness_aim_erased() noexcept {
+        return forgiveness_aim_erased;
+    }
+
+    std::uint64_t hitreg_forgiveness_aim_drifted() noexcept {
+        return forgiveness_aim_drifted;
+    }
+
+    float hitreg_forgiveness_last_aim_drift() noexcept {
+        return forgiveness_last_aim_drift_deg;
+    }
+
     void hitreg_forgiveness_reset_stats() noexcept {
         forgiveness_nudges = 0;
         forgiveness_candidates = 0;
         forgiveness_no_candidate = 0;
         forgiveness_last_nudge_angle = -1.0f;
+        forgiveness_injections = 0;
+        forgiveness_have_pending_aim_check = false;
+        forgiveness_aim_kept = 0;
+        forgiveness_aim_erased = 0;
+        forgiveness_aim_drifted = 0;
+        forgiveness_last_aim_drift_deg = -1.0f;
     }
 }
