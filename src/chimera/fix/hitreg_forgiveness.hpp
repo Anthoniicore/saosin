@@ -54,9 +54,12 @@ namespace Chimera {
 
     /**
      * Pistol autoaim angle currently applied by the module, in
-     * degrees, or -1 if the pistol tag was not found in the loaded
-     * map. This is what the engine's fire-time autoaim will bend
-     * bullets within; it should match the forgiveness cone.
+     * degrees, or -1 if no map is loaded (menu) and -2 if a map is
+     * loaded but the pistol tag was not found/patched. This is what
+     * the engine's fire-time autoaim will bend bullets within; it
+     * should match the forgiveness cone. Calling this in a loaded
+     * map retries the patch if it was never applied (the map-load
+     * event fires before the tags are in).
      */
     float hitreg_forgiveness_weapon_autoaim_deg() noexcept;
 }

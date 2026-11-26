@@ -175,10 +175,40 @@ namespace Chimera {
     }
 
     static void hitreg_forgiveness_map_load() noexcept {
-        // A map has finished loading, so its tags are valid from
-        // here on. Set the flag FIRST: it is what allows any tag
-        // memory to be read at all (see apply above).
+        // A map has STARTED loading. Set the flag FIRST: it is what
+        // allows any tag memory to be read at all (see apply above).
+        // NOTE: the map-load event fires at the START of the game's
+        // map-load function -- on_map_load_client_sig (VA 0x443600 in
+        // haloce.exe) is a function prologue, and Chimera's on_map_load
+        // is installed as call_before there, so these events run
+        // BEFORE the game has copied the map's tags into 0x40440000
+        // (the disassembly of 0x443600 shows it is itself a
+        // tag-loading function: it calls the 0x443410 tag-entry helper
+        // and iterates tag entries). So the apply below usually finds
+        // no tags yet and returns early -- that is expected, and the
+        // in-game retry (retry_forgiveness_weapon_angles) is what
+        // actually patches the tag once the map is loaded. Do NOT
+        // trust the flag alone as "tags are ready".
         forgiveness_map_loaded = true;
+        // Forget any tag patched in a previous map: after a map change
+        // the stored pointer is stale, and the apply below usually
+        // no-ops (tags not in yet), so the stale pointer must not be
+        // trusted afterwards. The retry re-patches once the new map
+        // is actually loaded.
+        forgiveness_pistol_tag_data = nullptr;
+        apply_forgiveness_weapon_angles();
+    }
+
+    // Retry the pistol patch once the player is actually in a loaded
+    // map. A live client biped proves the map is fully loaded and the
+    // tag region (0x40440000) is mapped, so calling apply here is
+    // safe. This runs from the tick event, so it retries every tick
+    // until the tag is patched and then costs nothing (the stored
+    // pointer is non-null, so it returns immediately).
+    static void retry_forgiveness_weapon_angles(UnitDynamicObject *unit) noexcept {
+        if(forgiveness_pistol_tag_data || !unit || unit->health <= 0.0f) {
+            return;
+        }
         apply_forgiveness_weapon_angles();
     }
 
@@ -381,6 +411,13 @@ namespace Chimera {
             return;
         }
 
+        // The player is alive in a loaded map: if the pistol tag was
+        // never patched (the map-load event fired before the tags
+        // were in), retry the patch now. This runs before the firing
+        // check on purpose, so the angles are applied even before
+        // the first shot.
+        retry_forgiveness_weapon_angles(unit);
+
         // Aim direction, normalized. The engine keeps this normalized, but be safe.
         Point3D aim = unit->aim;
         float aim_len = std::sqrt(aim.x*aim.x + aim.y*aim.y + aim.z*aim.z);
@@ -552,16 +589,35 @@ namespace Chimera {
         return forgiveness_last_aim_drift_deg;
     }
 
+    // Pistol autoaim angle currently applied, in degrees.
+    // -1: no map loaded (menu, or DLL init) -- tag memory is never
+    //     touched in this case.
+    // -2: a map IS loaded but the pistol tag was not found/patched.
+    // >= 0: the angle actually in the tag (should match the cone).
     float hitreg_forgiveness_weapon_autoaim_deg() noexcept {
-        if(!forgiveness_map_loaded || !forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
+        if(!forgiveness_map_loaded) {
             return -1.0f;
+        }
+        // Only touch tag memory when a live client biped proves a map
+        // is fully loaded. In the menu the tag region may be unmapped,
+        // and reading it would fault -- the same crash that kept the
+        // DLL from loading in 562f3b8/575f51d. This also makes `show`
+        // self-healing: the first `show` in a loaded map applies the
+        // patch (the map-load event fired before the tags were in).
+        auto *unit = get_client_unit();
+        if(!unit || unit->health <= 0.0f) {
+            return -1.0f;
+        }
+        retry_forgiveness_weapon_angles(unit);
+        if(!forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
+            return -2.0f;
         }
         // Only report the angle if the stored pointer is still this
         // map's pistol tag: after a map change it may be stale, and
         // reading it would return garbage (or fault if unmapped).
         auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
         if(!tag || !tag->data || tag->data != forgiveness_pistol_tag_data) {
-            return -1.0f;
+            return -2.0f;
         }
         float angle = *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
         return static_cast<float>(RADIANS_TO_DEGREES(angle));

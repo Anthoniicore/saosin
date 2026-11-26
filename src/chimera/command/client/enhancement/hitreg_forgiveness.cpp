@@ -23,8 +23,11 @@ namespace Chimera {
             float last_drift = hitreg_forgiveness_last_aim_drift();
             float weapon_autoaim = hitreg_forgiveness_weapon_autoaim_deg();
             console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg)", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()));
-            if(weapon_autoaim < 0.0f) {
+            if(weapon_autoaim < -1.5f) {
                 console_output("pistol autoaim: tag not found");
+            }
+            else if(weapon_autoaim < 0.0f) {
+                console_output("pistol autoaim: no map");
             }
             else {
                 console_output("pistol autoaim %.1f deg", static_cast<double>(weapon_autoaim));
