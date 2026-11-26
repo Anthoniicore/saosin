@@ -87,20 +87,32 @@ namespace Chimera {
     static float forgiveness_pistol_stock_autoaim = 0.0f;
     static float forgiveness_pistol_stock_deviation = 0.0f;
     static bool forgiveness_map_load_event_on = false;
+    // Has ANY map actually finished loading since DLL load? This is
+    // the only gate that may be checked during DLL init: it is plain
+    // module memory, not game memory. It is set only by the map-load
+    // event below, which fires once a map is loaded and its tags are
+    // valid (the same point where map_loading.cpp patches the
+    // warthog's angles).
+    static bool forgiveness_map_loaded = false;
 
     // Is a map's tag data actually loaded? The tag header lives at a
     // fixed address (0x40440000) and literally says "tags" when a map
-    // is loaded. This matters because Chimera's constructor runs at
-    // DLL load, before any map loads, and set_up_hitreg_forgiveness()
-    // calls apply_forgiveness_weapon_angles() from there: reading the
-    // tag array before a map exists dereferences garbage (or
-    // unmapped memory) and crashes DLL init, which Windows reports
-    // as "strings.dll is missing" even though the file is right
-    // there. That is exactly what the 562f3b8 build did -- the
-    // previous build (2edd35b) never touched tags at init and loaded
-    // fine. So: never touch tags unless this says a map is loaded.
-    // The map-load event applies the angles when a map actually
-    // loads, so nothing is lost by skipping the init-time call.
+    // is loaded. NOTE: this check alone is NOT enough during DLL
+    // init, and that is exactly why the 575f51d build still did not
+    // load. Chimera's constructor runs at DLL load, before any map
+    // loads, and set_up_hitreg_forgiveness() calls
+    // apply_forgiveness_weapon_angles() from there -- and this
+    // function itself reads the header at 0x40440000 to check it.
+    // Before the first map load that address is not mapped yet, so
+    // the memcmp faults right there in the guard, during DLL init,
+    // and Windows reports "strings.dll is missing" even though the
+    // file is right there. The 562f3b8 build crashed the same way by
+    // reading the tag array directly; 575f51d only moved the fault
+    // into the guard. The previous build (2edd35b) never touched tags
+    // at init and loaded fine. So: never read ANY tag memory --
+    // not even this header check -- until forgiveness_map_loaded
+    // says a map has actually loaded. This function is only a second
+    // layer, called after that gate passes.
     static bool forgiveness_tags_loaded() noexcept {
         const auto &header = get_tag_data_header();
         return std::memcmp(&header.tags_literal, "tags", 4) == 0 &&
@@ -112,10 +124,18 @@ namespace Chimera {
     // load, when the module is toggled and when the cone changes, so
     // the tag always matches the current setting.
     static void apply_forgiveness_weapon_angles() noexcept {
-        // No map loaded (DLL init, main menu with no map, ...): do
-        // nothing. Touching the tag array here is what crashed DLL
-        // init; the map-load event will apply the angles once a map
-        // is actually loaded.
+        // No map has finished loading yet (DLL init, ...): do nothing
+        // AT ALL. In particular, do not even call
+        // forgiveness_tags_loaded() here: checking the header reads
+        // 0x40440000, which is not mapped before the first map load,
+        // and faulting there during DLL init is what kept the DLL
+        // from loading in both 562f3b8 and 575f51d. The map-load
+        // event below sets the flag and applies the angles once a map
+        // is actually loaded, so nothing is lost by skipping the
+        // init-time call.
+        if(!forgiveness_map_loaded) {
+            return;
+        }
         if(!forgiveness_tags_loaded()) {
             return;
         }
@@ -155,6 +175,10 @@ namespace Chimera {
     }
 
     static void hitreg_forgiveness_map_load() noexcept {
+        // A map has finished loading, so its tags are valid from
+        // here on. Set the flag FIRST: it is what allows any tag
+        // memory to be read at all (see apply above).
+        forgiveness_map_loaded = true;
         apply_forgiveness_weapon_angles();
     }
 
@@ -529,7 +553,7 @@ namespace Chimera {
     }
 
     float hitreg_forgiveness_weapon_autoaim_deg() noexcept {
-        if(!forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
+        if(!forgiveness_map_loaded || !forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
             return -1.0f;
         }
         // Only report the angle if the stored pointer is still this
