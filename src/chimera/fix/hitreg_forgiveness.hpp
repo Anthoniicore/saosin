@@ -53,24 +53,28 @@ namespace Chimera {
     void hitreg_forgiveness_reset_stats() noexcept;
 
     /**
-     * Outgoing look increments vs Controls aim deltas, captured at
-     * the last look injection, in degrees. Read-only diagnostic:
-     * it only reads game memory, it never writes it.
+     * Outgoing look increments vs the nudge components, captured at
+     * the last post-tick nudge (firing at a live target inside the
+     * cone), in degrees. Read-only diagnostic: it only reads game
+     * memory, it never writes it.
      * - out_yaw_deg / out_pitch_deg: the per-player action look
      *   increments (yaw and pitch deltas, in radians in the game)
      *   for the local player -- the aim the client sends to the
      *   server in the player action. The client does NOT send
      *   absolute yaw/pitch; it sends these per-tick increments.
-     * - controls_aim_left_deg / controls_aim_up_deg: the Controls
-     *   aim deltas (what the look injection writes into) at the
-     *   same moment, for comparison.
-     * Returns false if no injection has fired yet (fire at an enemy
-     * first). If the out values do not include the nudge while the
-     * controls values do, the injection never reaches the action
-     * the server receives -- which is why the injected correction
-     * does not make off-red shots land.
+     * - nudge_yaw_deg / nudge_pitch_deg: the yaw/pitch components
+     *   of the correction the forgiveness applied at that moment
+     *   (whose total angle is the `last nudge` line).
+     * Returns false if no nudge has fired yet (fire at an enemy
+     * first). If the out values do not include the nudge, the
+     * correction never reaches the action the server receives --
+     * which is why the injected correction does not make off-red
+     * shots land. (The pre-tick injection writes Controls, which
+     * the engine's action-apply function zeroes and rebuilds from
+     * the action increments every tick, so the nudge can only
+     * reach the server by bending the increments themselves.)
      */
-    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &controls_aim_left_deg, float &controls_aim_up_deg) noexcept;
+    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &nudge_yaw_deg, float &nudge_pitch_deg) noexcept;
 
     /**
      * Pistol autoaim angle currently applied by the module, in

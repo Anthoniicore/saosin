@@ -52,9 +52,8 @@ namespace Chimera {
     static std::uint64_t forgiveness_aim_drifted = 0;
     static float forgiveness_last_aim_drift_deg = -1.0f;
 
-    // Outgoing-aim diagnostic (read-only): the look increments the
-    // client sends to the server, vs the Controls aim deltas the
-    // look injection writes, captured at the last injection.
+    // Outgoing-aim diagnostic (read-only): the nudge the forgiveness
+    // applies, vs the look increments the client sends to the server.
     // The client does NOT send absolute yaw/pitch: it sends player
     // actions, and the aim in an action is the per-tick look
     // increment (yaw and pitch deltas, in radians). They live in
@@ -63,23 +62,54 @@ namespace Chimera {
     // +0x0C the pitch increment. Evidence from haloce.exe: the
     // game's own get_digital_yaw_increment (VA 0x484950) and
     // get_digital_pitch_increment (VA 0x484A20) read exactly these
-    // two floats and convert radians to milli-turns (x1000/2pi),
-    // and the action-apply function (0x48F8xx-0x4916xx, the one
+    // two floats (distinct addresses, confirmed) and convert
+    // radians to milli-turns (x1000/2pi, constant 0x6122d8 =
+    // 159.15494), the setters set_digital_yaw_increment
+    // (0x4849B0) / set_digital_pitch_increment (0x484A80) write
+    // them back, and the action-apply function (0x48F850+, the one
     // containing controls_sig) adds them into Controls.aim_left /
-    // aim_up (0x6AD4C0/0x6AD4C4). The look injection writes only
-    // Controls, never these increments -- which is why the injected
-    // correction never reaches the action the server receives. These
-    // addresses are inside the game's own image (0x400000-0x82C000),
-    // so they are always mapped and safe to read. Captured only
-    // while firing at a live target (in the pre-tick injection),
-    // so `show` reports the values from the last firing tick.
+    // aim_up (0x6AD4C0/0x6AD4C4). The two reads are therefore
+    // correct; if out yaw and out pitch ever print the same value
+    // it is the game data, not the read: the apply function only
+    // READS the increments and never zeroes them, so they persist
+    // from the last input (a diagonal last movement leaves equal
+    // yaw and pitch). These addresses are inside the game's own
+    // image (0x400000-0x82C000), so they are always mapped and
+    // safe to read.
+    //
+    // Why the nudge is captured in the tick (post-tick) event and
+    // NOT re-read from Controls in the pre-tick injection (the old
+    // code did that and always printed 0.00): the pre-tick
+    // injection runs before the engine tick, when unit->aim was
+    // already aligned onto the target by the previous post-tick
+    // nudge, so the delta it computes is ~0; and Controls at that
+    // moment still holds the previous tick's already-consumed mouse
+    // delta (the apply function has not rebuilt it yet). Worse,
+    // the apply function ZEROES the whole Controls struct at the
+    // start of every tick (xor edx,edx at 0x48F8DC, then mov edx
+    // into 0x6AD498-0x6AD4C8) and rebuilds it from the action
+    // queue, so any pre-tick write to Controls.aim_left/aim_up is
+    // wiped during the same tick, before the look update uses it.
+    // That is the structural reason the injection never reaches
+    // the action the server receives: the correction has to go
+    // into the action increments themselves (hook the setters),
+    // not into Controls. So this diagnostic captures, in the
+    // post-tick event (after a target is found, while firing),
+    // the nudge components (the yaw/pitch needed to rotate the
+    // pre-nudge aim onto the target -- the real correction, the
+    // same best_angle the `last nudge` line reports) and the
+    // outgoing increments at the same moment. If the nudge is
+    // non-zero while the out increments do not include it, the
+    // correction is not in the action the server receives. Once
+    // the setter hook bends the increments, `out` must show the
+    // nudge included -- that is how the bend will be verified.
     static constexpr std::uintptr_t FORGIVENESS_OUTGOING_YAW_INCREMENT_ADDRESS = 0x6ABB40;
     static constexpr std::uintptr_t FORGIVENESS_OUTGOING_PITCH_INCREMENT_ADDRESS = 0x6ABB44;
     static bool forgiveness_have_last_outgoing_aim = false;
     static float forgiveness_last_out_yaw_deg = 0.0f;
     static float forgiveness_last_out_pitch_deg = 0.0f;
-    static float forgiveness_last_controls_aim_left_deg = 0.0f;
-    static float forgiveness_last_controls_aim_up_deg = 0.0f;
+    static float forgiveness_last_nudge_yaw_deg = 0.0f;
+    static float forgiveness_last_nudge_pitch_deg = 0.0f;
 
     // Weapon-tag route: the part of the forgiveness that actually
     // reaches the shot. The aim/camera/look nudges above are all
@@ -534,20 +564,12 @@ namespace Chimera {
         controls.aim_left += yaw_delta;
         controls.aim_up += pitch_delta;
         forgiveness_injections++;
-
-        // Read-only diagnostic: capture the outgoing look increments
-        // (the per-player action values at 0x6ABB40/0x6ABB44, in
-        // radians) and the Controls aim deltas, right after the
-        // injection, so `show` can compare what the action will be
-        // built from with what the injection wrote into Controls.
-        // The increments are the mouse look deltas for this tick
-        // (the injection never writes them); the Controls values
-        // are those deltas plus the nudge just injected.
-        forgiveness_last_out_yaw_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_YAW_INCREMENT_ADDRESS)));
-        forgiveness_last_out_pitch_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_PITCH_INCREMENT_ADDRESS)));
-        forgiveness_last_controls_aim_left_deg = static_cast<float>(RADIANS_TO_DEGREES(controls.aim_left));
-        forgiveness_last_controls_aim_up_deg = static_cast<float>(RADIANS_TO_DEGREES(controls.aim_up));
-        forgiveness_have_last_outgoing_aim = true;
+        // (No diagnostic capture here: at pre-tick time Controls
+        // still holds the previous tick's consumed mouse delta, and
+        // the delta just injected is ~0 because the post-tick nudge
+        // already aligned the aim -- re-reading Controls here always
+        // printed 0.00. The outgoing-aim diagnostic is captured in
+        // the tick event instead, where the nudge is real.)
     }
 
     // The nudge runs as a tick event, i.e. AFTER the engine's tick. This is
@@ -632,6 +654,34 @@ namespace Chimera {
             return;
         }
         forgiveness_candidates += candidates;
+
+        // Read-only diagnostic: capture the nudge components (the
+        // yaw/pitch needed to rotate the pre-nudge aim onto the
+        // target -- the real correction, whose total angle is the
+        // `last nudge` line) and the outgoing look increments
+        // (0x6ABB40/0x6ABB44) at the same moment, so `show` can
+        // compare the correction with the aim the client sends to
+        // the server. Captured here, in the tick event, because
+        // this is where the correction is non-zero: the pre-tick
+        // injection sees an aim already aligned by the previous
+        // tick's nudge and computes ~0.
+        {
+            float nudge_cross_z = aim.x*best_dir.y - aim.y*best_dir.x;
+            float nudge_dot_xy = aim.x*best_dir.x + aim.y*best_dir.y;
+            float nudge_yaw = std::atan2(nudge_cross_z, nudge_dot_xy);
+            float nudge_aim_z = aim.z;
+            if(nudge_aim_z > 1.0f) nudge_aim_z = 1.0f;
+            if(nudge_aim_z < -1.0f) nudge_aim_z = -1.0f;
+            float nudge_dir_z = best_dir.z;
+            if(nudge_dir_z > 1.0f) nudge_dir_z = 1.0f;
+            if(nudge_dir_z < -1.0f) nudge_dir_z = -1.0f;
+            float nudge_pitch = std::asin(nudge_dir_z) - std::asin(nudge_aim_z);
+            forgiveness_last_nudge_yaw_deg = static_cast<float>(RADIANS_TO_DEGREES(nudge_yaw));
+            forgiveness_last_nudge_pitch_deg = static_cast<float>(RADIANS_TO_DEGREES(nudge_pitch));
+            forgiveness_last_out_yaw_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_YAW_INCREMENT_ADDRESS)));
+            forgiveness_last_out_pitch_deg = static_cast<float>(RADIANS_TO_DEGREES(*reinterpret_cast<float *>(FORGIVENESS_OUTGOING_PITCH_INCREMENT_ADDRESS)));
+            forgiveness_have_last_outgoing_aim = true;
+        }
 
         // Pull the aim onto the enemy's center. The crosshair (camera) is
         // corrected together with the aim so the two agree: the camera's
@@ -754,18 +804,19 @@ namespace Chimera {
         return forgiveness_last_aim_drift_deg;
     }
 
-    // Outgoing look increments vs Controls aim deltas, captured at
-    // the last look injection, in degrees. Returns false if no
-    // injection has fired yet (nothing captured). Read-only: this
-    // only reads game memory, it never writes it.
-    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &controls_aim_left_deg, float &controls_aim_up_deg) noexcept {
+    // Outgoing look increments vs the nudge components, captured at
+    // the last post-tick nudge (firing at a live target inside the
+    // cone), in degrees. Returns false if no nudge has fired yet
+    // (nothing captured). Read-only: this only reads game memory,
+    // it never writes it.
+    bool hitreg_forgiveness_last_outgoing_aim(float &out_yaw_deg, float &out_pitch_deg, float &nudge_yaw_deg, float &nudge_pitch_deg) noexcept {
         if(!forgiveness_have_last_outgoing_aim) {
             return false;
         }
         out_yaw_deg = forgiveness_last_out_yaw_deg;
         out_pitch_deg = forgiveness_last_out_pitch_deg;
-        controls_aim_left_deg = forgiveness_last_controls_aim_left_deg;
-        controls_aim_up_deg = forgiveness_last_controls_aim_up_deg;
+        nudge_yaw_deg = forgiveness_last_nudge_yaw_deg;
+        nudge_pitch_deg = forgiveness_last_nudge_pitch_deg;
         return true;
     }
 
@@ -868,7 +919,7 @@ namespace Chimera {
         forgiveness_have_last_outgoing_aim = false;
         forgiveness_last_out_yaw_deg = 0.0f;
         forgiveness_last_out_pitch_deg = 0.0f;
-        forgiveness_last_controls_aim_left_deg = 0.0f;
-        forgiveness_last_controls_aim_up_deg = 0.0f;
+        forgiveness_last_nudge_yaw_deg = 0.0f;
+        forgiveness_last_nudge_pitch_deg = 0.0f;
     }
 }
