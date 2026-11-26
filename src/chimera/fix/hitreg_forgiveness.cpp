@@ -13,12 +13,27 @@
 #include "../halo_data/player.hpp"
 #include "../halo_data/tag.hpp"
 #include "../math_trig/math_trig.hpp"
+#include "../signature/hook.hpp"
 
 extern "C" {
     // Module on/off flag: when 1, the forgiveness nudge is active.
     // It does not touch the engine's aim assist (mouse aim assist was
     // removed because it fought free mouse movement).
     std::uint8_t hitreg_forgiveness_on = 1;
+
+    // Bend nudge (radians) to add to the look increments in the
+    // set_digital_yaw/pitch_increment setters. Written by the C++
+    // call-before, read by the .S call-after stubs
+    // (hitreg_forgiveness_bend.S). See compute_forgiveness_bend().
+    float forgiveness_bend_yaw_rad = 0.0f;
+    float forgiveness_bend_pitch_rad = 0.0f;
+
+    // Call-after stubs (hitreg_forgiveness_bend.S). Each adds the
+    // matching bend nudge above to ST(0) (the converter's return
+    // value, in radians), so the setter's fstps stores the mouse
+    // delta plus the bend onto the enemy.
+    void on_forgiveness_bend_yaw_after();
+    void on_forgiveness_bend_pitch_after();
 }
 
 namespace Chimera {
@@ -35,6 +50,20 @@ namespace Chimera {
 
     // How many times the pre-tick look injection fired.
     static std::uint64_t forgiveness_injections = 0;
+
+    // How many times the setter bend was armed (the yaw setter's
+    // call-before computed a non-zero nudge). One per input update
+    // while firing at an enemy inside the cone (the pitch setter
+    // recomputes the same nudge but does not count, so this is not
+    // doubled).
+    static std::uint64_t forgiveness_bends = 0;
+
+    // Setter hooks for the bend (see install_forgiveness_bend_hooks).
+    // Stored statically: the Hook owns the trampoline code, so it
+    // must outlive the setup call.
+    static Hook forgiveness_bend_yaw_hook;
+    static Hook forgiveness_bend_pitch_hook;
+    static bool forgiveness_bend_hooks_installed = false;
 
     // Aim-persistence diagnostic: did the previous tick's correction survive
     // the engine tick? Measured at the start of the post-tick event, before
@@ -719,9 +748,151 @@ namespace Chimera {
         forgiveness_last_nudge_angle = best_angle;
     }
 
+    // Compute the bend (yaw/pitch deltas, radians) to rotate the
+    // shooter's aim onto the best enemy inside the cone, for the
+    // setter hooks. Returns false (and stores 0, 0) unless the
+    // module is on, the cone is > 0, the local player is alive and
+    // firing, and an enemy is inside the cone.
+    //
+    // Base aim: the aim the MOUSE is producing, not the nudged aim.
+    // The post-tick nudge overwrites unit->aim/desired_aim with the
+    // target direction, and the engine re-derives the aim from the
+    // mouse look input every tick, so the aim the server will build
+    // from the increments is the mouse aim. The record of it is
+    // forgiveness_pre_nudge_aim: the aim just before the last
+    // post-tick nudge (set in the tick event). If no nudge ran in
+    // the previous tick (no pending aim check), the current aim IS
+    // the mouse aim (nothing overwrote it) and it is used directly.
+    // The base aim is one tick stale when it comes from the stored
+    // pre-nudge aim; the error is small (the aim moves little in
+    // one tick when the mouse is steady) and the bend is recomputed
+    // on every setter call, so it tracks.
+    static bool compute_forgiveness_bend(float &yaw_delta_rad, float &pitch_delta_rad) noexcept {
+        yaw_delta_rad = 0.0f;
+        pitch_delta_rad = 0.0f;
+        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
+            return false;
+        }
+
+        auto *unit = get_client_unit();
+        if(!unit || unit->health <= 0.0f) {
+            return false;
+        }
+
+        // Only help while the trigger is actually held.
+        if(!unit->primary_fire_button) {
+            return false;
+        }
+
+        Point3D aim;
+        if(forgiveness_have_pending_aim_check) {
+            // A post-tick nudge ran last tick: the current aim is the
+            // nudged aim, not the mouse aim. Use the aim from before
+            // that nudge.
+            aim = forgiveness_pre_nudge_aim;
+        }
+        else {
+            aim = unit->aim;
+        }
+        float aim_len = std::sqrt(aim.x*aim.x + aim.y*aim.y + aim.z*aim.z);
+        if(aim_len < 0.5f || aim_len > 2.0f) {
+            return false;
+        }
+        aim.x /= aim_len; aim.y /= aim_len; aim.z /= aim_len;
+
+        Point3D eye = unit->center_position;
+        Point3D best_dir = {};
+        float best_angle = 0.0f;
+        if(!find_forgiveness_target(eye, aim, unit, best_dir, best_angle, nullptr)) {
+            return false;
+        }
+
+        // Yaw (rotation about the world Z axis, positive = left) and
+        // pitch (elevation difference, positive = up) needed to
+        // rotate the aim onto the target. The angles are small (<=
+        // the cone, <= 10 deg), so splitting the single rotation
+        // into yaw + pitch is accurate.
+        float cross_z = aim.x*best_dir.y - aim.y*best_dir.x;
+        float dot_xy = aim.x*best_dir.x + aim.y*best_dir.y;
+        float yaw_delta = std::atan2(cross_z, dot_xy);
+        float aim_z = aim.z;
+        if(aim_z > 1.0f) aim_z = 1.0f;
+        if(aim_z < -1.0f) aim_z = -1.0f;
+        float dir_z = best_dir.z;
+        if(dir_z > 1.0f) dir_z = 1.0f;
+        if(dir_z < -1.0f) dir_z = -1.0f;
+        float pitch_delta = std::asin(dir_z) - std::asin(aim_z);
+
+        // Safety net: never bend more than the cone in a single
+        // input update (within a normal mouse movement per tick).
+        float max_delta = static_cast<float>(DEGREES_TO_RADIANS(forgiveness_cone_degrees));
+        if(yaw_delta > max_delta) yaw_delta = max_delta;
+        if(yaw_delta < -max_delta) yaw_delta = -max_delta;
+        if(pitch_delta > max_delta) pitch_delta = max_delta;
+        if(pitch_delta < -max_delta) pitch_delta = -max_delta;
+
+        yaw_delta_rad = yaw_delta;
+        pitch_delta_rad = pitch_delta;
+        return true;
+    }
+
+    // Call-before for the yaw setter hook: compute the bend nudge
+    // (both components) and store it for the call-after stubs.
+    // Counts the bend (yaw setter only, so one per input update).
+    static void hitreg_forgiveness_bend_yaw_before() noexcept {
+        float yaw = 0.0f, pitch = 0.0f;
+        if(compute_forgiveness_bend(yaw, pitch)) {
+            forgiveness_bends++;
+        }
+        forgiveness_bend_yaw_rad = yaw;
+        forgiveness_bend_pitch_rad = pitch;
+    }
+
+    // Call-before for the pitch setter hook: same nudge, recomputed
+    // (the aim/target have not changed between the two setter calls
+    // in one input update). Does not count, so `bends` is one per
+    // input update, not two.
+    static void hitreg_forgiveness_bend_pitch_before() noexcept {
+        float yaw = 0.0f, pitch = 0.0f;
+        compute_forgiveness_bend(yaw, pitch);
+        forgiveness_bend_yaw_rad = yaw;
+        forgiveness_bend_pitch_rad = pitch;
+    }
+
+    // Install the setter hooks for the bend. The setters are the
+    // only writers of the look increments (verified in haloce.exe:
+    // the only fstps to 0x6ABB40/0x6ABB44 are in the two setters),
+    // so all look input -- mouse included -- flows through them.
+    // The hook point is the converter call (0x48f490) inside each
+    // setter: the overwritten instructions (mov edx,[eax+4]; push
+    // edx; call 0x48f490) parse with Chimera's instruction reader,
+    // and the call-after runs with the converted increment
+    // (radians) in ST(0), so the stub adds the bend and the
+    // following fstps stores it. The hook only fires when the
+    // setter is actually going to write: the hook point is past
+    // the index validation (0..3) and the null check, and after
+    // it there is no further branch before the fstps.
+    // The bend only applies to the local player: on PC there is a
+    // single local player (index 0) and the setters are the local
+    // input path, so the nudge is added to the local player's
+    // increments. (The setter's player index is not visible to the
+    // call-before, so this relies on that; split-screen/local
+    // multi-player is out of scope for Halo CE PC.)
+    static void install_forgiveness_bend_hooks() noexcept {
+        if(forgiveness_bend_hooks_installed) {
+            return;
+        }
+        forgiveness_bend_hooks_installed = true;
+        // set_digital_yaw_increment (VA 0x4849B0): converter call at 0x4849EA.
+        write_jmp_call(reinterpret_cast<void *>(0x4849EA), forgiveness_bend_yaw_hook, reinterpret_cast<const void *>(hitreg_forgiveness_bend_yaw_before), reinterpret_cast<const void *>(on_forgiveness_bend_yaw_after));
+        // set_digital_pitch_increment (VA 0x484A80): converter call at 0x484ABA.
+        write_jmp_call(reinterpret_cast<void *>(0x484ABA), forgiveness_bend_pitch_hook, reinterpret_cast<const void *>(hitreg_forgiveness_bend_pitch_before), reinterpret_cast<const void *>(on_forgiveness_bend_pitch_after));
+    }
+
     void set_up_hitreg_forgiveness() noexcept {
         // The aim-assist hook itself is installed by set_up_aim_assist_fix();
         // this module only arms the extra flag and the forgiveness events.
+        install_forgiveness_bend_hooks();
         set_hitreg_forgiveness_enabled(true);
     }
 
@@ -786,6 +957,10 @@ namespace Chimera {
 
     std::uint64_t hitreg_forgiveness_injections() noexcept {
         return forgiveness_injections;
+    }
+
+    std::uint64_t hitreg_forgiveness_bends() noexcept {
+        return forgiveness_bends;
     }
 
     std::uint64_t hitreg_forgiveness_aim_kept() noexcept {
@@ -911,6 +1086,9 @@ namespace Chimera {
         forgiveness_no_candidate = 0;
         forgiveness_last_nudge_angle = -1.0f;
         forgiveness_injections = 0;
+        forgiveness_bends = 0;
+        forgiveness_bend_yaw_rad = 0.0f;
+        forgiveness_bend_pitch_rad = 0.0f;
         forgiveness_have_pending_aim_check = false;
         forgiveness_aim_kept = 0;
         forgiveness_aim_erased = 0;

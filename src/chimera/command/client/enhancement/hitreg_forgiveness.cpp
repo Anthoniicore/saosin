@@ -42,6 +42,11 @@ namespace Chimera {
             else {
                 console_output("last nudge %.2f deg | injections %llu", static_cast<double>(last_angle), static_cast<unsigned long long>(hitreg_forgiveness_injections()));
             }
+            // Bend in the look increments: how many times the setter
+            // hooks armed a non-zero nudge. If bends is 0 while
+            // nudges grows, the bend never ran (module off, not
+            // firing, or no enemy in the cone at input time).
+            console_output("bends %llu", static_cast<unsigned long long>(hitreg_forgiveness_bends()));
             console_output("aim kept %llu | aim erased %llu | aim drifted %llu", static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()));
             if(last_drift < 0.0f) {
                 console_output("last drift: none yet");
@@ -53,9 +58,10 @@ namespace Chimera {
             // forgiveness applied, vs the look increments the
             // client sends to the server, both captured at the last
             // post-tick nudge (while firing at a live target inside
-            // the cone). If the out values do not carry the nudge,
-            // the correction never reaches the action the server
-            // receives.
+            // the cone). With the bend in the setters, the out
+            // values should carry the nudge (out = raw mouse delta
+            // + nudge); if they do not, the correction still never
+            // reaches the action the server receives.
             float out_yaw = 0.0f, out_pitch = 0.0f, nudge_yaw = 0.0f, nudge_pitch = 0.0f;
             if(hitreg_forgiveness_last_outgoing_aim(out_yaw, out_pitch, nudge_yaw, nudge_pitch)) {
                 console_output("nudge yaw %.2f deg | pitch %.2f deg", static_cast<double>(nudge_yaw), static_cast<double>(nudge_pitch));

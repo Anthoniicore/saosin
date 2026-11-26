@@ -84,6 +84,7 @@ add_library(chimera STATIC
     src/chimera/fix/fp_reverb.S
     src/chimera/fix/fov_fix.cpp
     src/chimera/fix/hitreg_forgiveness.cpp
+    src/chimera/fix/hitreg_forgiveness_bend.S
     src/chimera/fix/invalid_command_crash.cpp
     src/chimera/fix/invalid_command_crash.S
     src/chimera/fix/inverted_flag.cpp

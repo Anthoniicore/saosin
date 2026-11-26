@@ -7,15 +7,21 @@
 
 namespace Chimera {
     /**
-     * Set up the hitreg forgiveness module. The part that reaches the
-     * shot is the weapon-tag route: the pistol's autoaim angle (and
-     * deviation cap) in the loaded map's tags are widened to the
-     * forgiveness cone, so the engine's own fire-time autoaim bends
-     * near-miss shots onto the enemy. The older aim/camera/look
-     * nudges are kept as a refinement, but the engine re-derives the
-     * aim every tick from the mouse look input and erases them
-     * (diagnostic: aim erased 41 vs aim kept 2), so on their own
-     * they do not make shots land.
+     * Set up the hitreg forgiveness module. The part that reaches
+     * the shot is the bend in the look increments: the game writes
+     * the per-tick look increments (the aim the client sends to the
+     * server in the player action) through set_digital_yaw_increment
+     * (0x4849B0) and set_digital_pitch_increment (0x484A80), and
+     * those setters are hooked so that, while firing at an enemy
+     * inside the cone, the nudge onto the enemy is added to the
+     * increment (in radians) before it is stored. The weapon-tag
+     * route only widens the client-side autoaim angle (the red
+     * reticle and the client-side shield flash); the server decides
+     * with its own tags, so it does not make shots land. The older
+     * aim/camera/look nudges are kept as a refinement, but the
+     * engine re-derives the aim every tick from the mouse look
+     * input and erases them (diagnostic: aim erased 41 vs aim
+     * kept 2), so on their own they do not make shots land.
      */
     void set_up_hitreg_forgiveness() noexcept;
 
@@ -35,6 +41,8 @@ namespace Chimera {
      * - no_candidate: scans while firing that found no enemy in the cone.
      * - last_nudge_angle: angle (degrees) of the last nudge, or -1 if none yet.
      * - injections: times the pre-tick look injection fired.
+     * - bends: times the setter bend was armed (a non-zero nudge
+     *   was computed and added to the look increments).
      * - aim_kept / aim_erased / aim_drifted: whether the previous tick's
      *   correction was still on the aim when the next tick ran (kept),
      *   was back to the pre-nudge aim (erased), or neither (drifted).
@@ -46,6 +54,7 @@ namespace Chimera {
     std::uint64_t hitreg_forgiveness_no_candidate() noexcept;
     float hitreg_forgiveness_last_nudge_angle() noexcept;
     std::uint64_t hitreg_forgiveness_injections() noexcept;
+    std::uint64_t hitreg_forgiveness_bends() noexcept;
     std::uint64_t hitreg_forgiveness_aim_kept() noexcept;
     std::uint64_t hitreg_forgiveness_aim_erased() noexcept;
     std::uint64_t hitreg_forgiveness_aim_drifted() noexcept;
