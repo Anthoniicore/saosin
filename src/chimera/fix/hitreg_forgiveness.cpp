@@ -23,6 +23,12 @@ namespace Chimera {
     static float forgiveness_cone_degrees = 3.0f;
     static bool forgiveness_events_on = false;
 
+    // Diagnostic counters (read-only; they never change gameplay).
+    static std::uint64_t forgiveness_nudges = 0;
+    static std::uint64_t forgiveness_candidates = 0;
+    static std::uint64_t forgiveness_no_candidate = 0;
+    static float forgiveness_last_nudge_angle = -1.0f;
+
     static void hitreg_forgiveness_pretick() noexcept {
         // Only while the module is on and the cone allows a nudge.
         if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
@@ -110,6 +116,10 @@ namespace Chimera {
             if(dot > 1.0f) dot = 1.0f;
             if(dot < -1.0f) dot = -1.0f;
             float angle = static_cast<float>(RADIANS_TO_DEGREES(std::acos(static_cast<double>(dot))));
+            // Count every enemy inside the cone, not just the best one.
+            if(angle < forgiveness_cone_degrees) {
+                forgiveness_candidates++;
+            }
             if(angle < best_angle) {
                 best_angle = angle;
                 best_dir = to_target;
@@ -118,6 +128,8 @@ namespace Chimera {
         }
 
         if(!found) {
+            // Firing, but no enemy inside the cone to pull onto.
+            forgiveness_no_candidate++;
             return;
         }
 
@@ -125,6 +137,8 @@ namespace Chimera {
         // not move; only the direction the weapon fires along is corrected.
         unit->aim = best_dir;
         unit->desired_aim = best_dir;
+        forgiveness_nudges++;
+        forgiveness_last_nudge_angle = best_angle;
     }
 
     void set_up_hitreg_forgiveness() noexcept {
@@ -157,5 +171,28 @@ namespace Chimera {
 
     float hitreg_forgiveness_cone() noexcept {
         return forgiveness_cone_degrees;
+    }
+
+    std::uint64_t hitreg_forgiveness_nudges() noexcept {
+        return forgiveness_nudges;
+    }
+
+    std::uint64_t hitreg_forgiveness_candidates() noexcept {
+        return forgiveness_candidates;
+    }
+
+    std::uint64_t hitreg_forgiveness_no_candidate() noexcept {
+        return forgiveness_no_candidate;
+    }
+
+    float hitreg_forgiveness_last_nudge_angle() noexcept {
+        return forgiveness_last_nudge_angle;
+    }
+
+    void hitreg_forgiveness_reset_stats() noexcept {
+        forgiveness_nudges = 0;
+        forgiveness_candidates = 0;
+        forgiveness_no_candidate = 0;
+        forgiveness_last_nudge_angle = -1.0f;
     }
 }

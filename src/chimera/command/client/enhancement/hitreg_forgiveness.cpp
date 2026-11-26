@@ -14,6 +14,24 @@ namespace Chimera {
             return true;
         }
 
+        // show/reset are diagnostic subcommands: they only read or clear the
+        // counters, they never change the module's settings or gameplay.
+        if(std::strcmp(argv[0], "show") == 0) {
+            float last_angle = hitreg_forgiveness_last_nudge_angle();
+            if(last_angle < 0.0f) {
+                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge: none yet", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()));
+            }
+            else {
+                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge %.2f deg", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()), static_cast<double>(last_angle));
+            }
+            return true;
+        }
+        if(std::strcmp(argv[0], "reset") == 0) {
+            hitreg_forgiveness_reset_stats();
+            console_output("chimera_hitreg_forgiveness: diagnostic counters reset");
+            return true;
+        }
+
         // true/false/on/off toggles the whole module
         if(std::strcmp(argv[0], "true") == 0 || std::strcmp(argv[0], "1") == 0 || std::strcmp(argv[0], "on") == 0) {
             set_hitreg_forgiveness_enabled(true);
