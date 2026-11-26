@@ -16,20 +16,25 @@ namespace Chimera {
 
         // show/reset are diagnostic subcommands: they only read or clear the
         // counters, they never change the module's settings or gameplay.
+        // show prints the diagnostic counters on several short lines,
+        // so they fit in the in-game console (one long line gets cut off).
         if(std::strcmp(argv[0], "show") == 0) {
             float last_angle = hitreg_forgiveness_last_nudge_angle();
             float last_drift = hitreg_forgiveness_last_aim_drift();
-            if(last_angle < 0.0f && last_drift < 0.0f) {
-                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge: none yet | injections %llu | aim kept %llu | aim erased %llu | aim drifted %llu | last drift: none yet", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()), static_cast<unsigned long long>(hitreg_forgiveness_injections()), static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()));
-            }
-            else if(last_angle < 0.0f) {
-                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge: none yet | injections %llu | aim kept %llu | aim erased %llu | aim drifted %llu | last drift %.2f deg", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()), static_cast<unsigned long long>(hitreg_forgiveness_injections()), static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()), static_cast<double>(last_drift));
-            }
-            else if(last_drift < 0.0f) {
-                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge %.2f deg | injections %llu | aim kept %llu | aim erased %llu | aim drifted %llu | last drift: none yet", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()), static_cast<double>(last_angle), static_cast<unsigned long long>(hitreg_forgiveness_injections()), static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()));
+            console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg)", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()));
+            console_output("nudges %llu | candidates %llu | no candidate %llu", static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()));
+            if(last_angle < 0.0f) {
+                console_output("last nudge: none yet | injections %llu", static_cast<unsigned long long>(hitreg_forgiveness_injections()));
             }
             else {
-                console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg) | nudges %llu | candidates %llu | no candidate %llu | last nudge %.2f deg | injections %llu | aim kept %llu | aim erased %llu | aim drifted %llu | last drift %.2f deg", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()), static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()), static_cast<double>(last_angle), static_cast<unsigned long long>(hitreg_forgiveness_injections()), static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()), static_cast<double>(last_drift));
+                console_output("last nudge %.2f deg | injections %llu", static_cast<double>(last_angle), static_cast<unsigned long long>(hitreg_forgiveness_injections()));
+            }
+            console_output("aim kept %llu | aim erased %llu | aim drifted %llu", static_cast<unsigned long long>(hitreg_forgiveness_aim_kept()), static_cast<unsigned long long>(hitreg_forgiveness_aim_erased()), static_cast<unsigned long long>(hitreg_forgiveness_aim_drifted()));
+            if(last_drift < 0.0f) {
+                console_output("last drift: none yet");
+            }
+            else {
+                console_output("last drift %.2f deg", static_cast<double>(last_drift));
             }
             return true;
         }
