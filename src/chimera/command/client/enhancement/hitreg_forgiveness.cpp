@@ -21,7 +21,14 @@ namespace Chimera {
         if(std::strcmp(argv[0], "show") == 0) {
             float last_angle = hitreg_forgiveness_last_nudge_angle();
             float last_drift = hitreg_forgiveness_last_aim_drift();
+            float weapon_autoaim = hitreg_forgiveness_weapon_autoaim_deg();
             console_output("chimera_hitreg_forgiveness: %s (cone %.1f deg)", BOOL_TO_STR(hitreg_forgiveness_enabled()), static_cast<double>(hitreg_forgiveness_cone()));
+            if(weapon_autoaim < 0.0f) {
+                console_output("pistol autoaim: tag not found");
+            }
+            else {
+                console_output("pistol autoaim %.1f deg", static_cast<double>(weapon_autoaim));
+            }
             console_output("nudges %llu | candidates %llu | no candidate %llu", static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()));
             if(last_angle < 0.0f) {
                 console_output("last nudge: none yet | injections %llu", static_cast<unsigned long long>(hitreg_forgiveness_injections()));

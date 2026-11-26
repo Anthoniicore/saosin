@@ -4,12 +4,14 @@
 
 #include "hitreg_forgiveness.hpp"
 #include "../chimera.hpp"
+#include "../event/map_load.hpp"
 #include "../event/tick.hpp"
 #include "../halo_data/camera.hpp"
 #include "../halo_data/controls.hpp"
 #include "../halo_data/multiplayer.hpp"
 #include "../halo_data/object.hpp"
 #include "../halo_data/player.hpp"
+#include "../halo_data/tag.hpp"
 #include "../math_trig/math_trig.hpp"
 
 extern "C" {
@@ -49,6 +51,77 @@ namespace Chimera {
     static std::uint64_t forgiveness_aim_erased = 0;
     static std::uint64_t forgiveness_aim_drifted = 0;
     static float forgiveness_last_aim_drift_deg = -1.0f;
+
+    // Weapon-tag route: the part of the forgiveness that actually
+    // reaches the shot. The aim/camera/look nudges above are all
+    // erased by the engine, which re-derives the aim every tick from
+    // the mouse look input (diagnostic: aim erased 41 vs aim kept 2,
+    // and shots only landed with the reticle already red). The
+    // engine's fire-time autoaim is different: when a weapon fires,
+    // the engine itself bends the bullet toward a target inside the
+    // weapon tag's autoaim angle, up to the tag's deviation angle.
+    // That bend happens at fire time, after the aim is final, so
+    // nothing erases it -- and it never touches the mouse or the
+    // view, so free mouse movement stays untouched. Widening the
+    // pistol tag's two angles to the forgiveness cone therefore
+    // makes the engine's own bend engage for near-miss shots.
+    // This uses the same offsets map_loading.cpp already uses for
+    // the warthog gun (autoaim angle +0x3E4, deviation angle +0x3F4)
+    // and the same get_tag lookup pattern.
+    // Honest limit: this only works if the engine's fire-time
+    // autoaim runs for mouse players. If it turns out to be gated
+    // on analog movement like the per-tick magnetism, widening the
+    // angles will do nothing -- the in-game test (a 2.3 deg off
+    // shot at a static target making the shield flare) decides it.
+    // Finding and hooking the bend itself would need the game binary
+    // (haloce.exe), which is not available here: saosin has no
+    // signature or address for it.
+    static constexpr const char *FORGIVENESS_PISTOL_TAG_PATH = "weapons\\pistol\\pistol";
+    static constexpr std::size_t WEAPON_TAG_AUTOAIM_ANGLE_OFFSET = 0x3E4;
+    static constexpr std::size_t WEAPON_TAG_DEVIATION_ANGLE_OFFSET = 0x3F4;
+    // Tag data currently patched (nullptr = nothing patched). The
+    // stock angles are saved on the first patch so they can be put
+    // back when the module is turned off or the cone is set to 0.
+    static std::byte *forgiveness_pistol_tag_data = nullptr;
+    static float forgiveness_pistol_stock_autoaim = 0.0f;
+    static float forgiveness_pistol_stock_deviation = 0.0f;
+    static bool forgiveness_map_load_event_on = false;
+
+    // Widen (or restore) the pistol's autoaim angles. Called on map
+    // load, when the module is toggled and when the cone changes, so
+    // the tag always matches the current setting.
+    static void apply_forgiveness_weapon_angles() noexcept {
+        // Module off or cone 0: put the stock angles back.
+        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
+            if(forgiveness_pistol_tag_data) {
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_pistol_stock_autoaim;
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_pistol_stock_deviation;
+                forgiveness_pistol_tag_data = nullptr;
+            }
+            return;
+        }
+
+        auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
+        if(!tag || !tag->data) {
+            return;
+        }
+
+        // New tag data (a freshly loaded map): remember the stock
+        // angles before overwriting them.
+        if(tag->data != forgiveness_pistol_tag_data) {
+            forgiveness_pistol_stock_autoaim = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+            forgiveness_pistol_stock_deviation = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET);
+            forgiveness_pistol_tag_data = tag->data;
+        }
+
+        float angle = static_cast<float>(DEGREES_TO_RADIANS(forgiveness_cone_degrees));
+        *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = angle;
+        *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = angle;
+    }
+
+    static void hitreg_forgiveness_map_load() noexcept {
+        apply_forgiveness_weapon_angles();
+    }
 
     // Angle (degrees) between two normalized directions.
     static float angle_between(const Point3D &a, const Point3D &b) noexcept {
@@ -353,6 +426,17 @@ namespace Chimera {
             remove_tick_event(hitreg_forgiveness_tick);
             forgiveness_events_on = false;
         }
+        if(enabled && !forgiveness_map_load_event_on) {
+            add_map_load_event(hitreg_forgiveness_map_load);
+            forgiveness_map_load_event_on = true;
+        }
+        else if(!enabled && forgiveness_map_load_event_on) {
+            remove_map_load_event(hitreg_forgiveness_map_load);
+            forgiveness_map_load_event_on = false;
+        }
+        // (Re)apply or restore the pistol's autoaim angles right away,
+        // so a map that is already loaded does not need a reload.
+        apply_forgiveness_weapon_angles();
     }
 
     bool hitreg_forgiveness_enabled() noexcept {
@@ -363,6 +447,10 @@ namespace Chimera {
         if(degrees < 0.0f) degrees = 0.0f;
         if(degrees > 10.0f) degrees = 10.0f;
         forgiveness_cone_degrees = degrees;
+        // The pistol's autoaim angles follow the cone, so changing
+        // the cone takes effect without reloading the map. A cone of
+        // 0 restores the stock angles.
+        apply_forgiveness_weapon_angles();
     }
 
     float hitreg_forgiveness_cone() noexcept {
@@ -403,6 +491,14 @@ namespace Chimera {
 
     float hitreg_forgiveness_last_aim_drift() noexcept {
         return forgiveness_last_aim_drift_deg;
+    }
+
+    float hitreg_forgiveness_weapon_autoaim_deg() noexcept {
+        if(!forgiveness_pistol_tag_data) {
+            return -1.0f;
+        }
+        float angle = *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+        return static_cast<float>(RADIANS_TO_DEGREES(angle));
     }
 
     void hitreg_forgiveness_reset_stats() noexcept {

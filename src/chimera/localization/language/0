@@ -139,7 +139,7 @@ chimera_fov_vehicle_command_help                                                
 chimera_fov_cinematic_command_help                                              Set field of view for cinematics. Use \"auto\" for automatic FOV or suffix FOV with \"v\" to lock to a vertical FOV.
 chimera_fov_error_invalid_fov_given                                             Invalid FOV given. Expected \"auto\", <FOV>, <FOV>v, or \"off\"
 chimera_fp_reverb_command_help                                                  Set whether or not first person sounds should have reverb when EAX is enabled.
-chimera_hitreg_forgiveness_command_help                                        Enable hitreg forgiveness: shots fired just off target are pulled onto the enemy. true/false, or a forgiveness cone in degrees (0-10). show prints diagnostic counters, reset clears them.
+chimera_hitreg_forgiveness_command_help                                        Enable hitreg forgiveness: the pistol's autoaim cone is widened to the forgiveness cone, so shots fired just off target bend onto the enemy. true/false, or a forgiveness cone in degrees (0-10). show prints diagnostic counters, reset clears them.
 chimera_interpolate_extrapolate_command_help                                    Draw objects half a tick ahead of their interpolated position, smoothed so movement stays fluid like plain interpolation.
 chimera_interpolate_help                                                        Improve the appearance of object movement and animation. (CPU intensive!)
 chimera_language_command_available_languages                                    Available languages:

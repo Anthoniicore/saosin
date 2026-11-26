@@ -99,7 +99,7 @@ chimera_fov_vehicle_command_help                                                
 chimera_fov_cinematic_command_help                                              Establece el campo de visión para cinemáticas. Usa \"auto\" para FOV automático o añade \"v\" al FOV para bloquear a un FOV vertical.
 chimera_fov_error_invalid_fov_given                                             FOV inválido. Se esperaba \"auto\", <FOV>, <FOV>v, o \"off\"
 chimera_fp_reverb_command_help                                                  Establece si los sonidos en primera persona deben tener reverb cuando EAX está habilitado.
-chimera_hitreg_forgiveness_command_help                                        Activa el perdón de hitreg: los disparos que pasan muy cerca del enemigo se corrigen hacia él. true/false, o un cono de perdón en grados (0-10). show muestra los contadores de diagnóstico, reset los pone en cero.
+chimera_hitreg_forgiveness_command_help                                        Activa el perdón de hitreg: el cono de autoaim de la pistola se abre hasta el cono de perdón, así los disparos que pasan muy cerca del enemigo se doblan hacia él. true/false, o un cono de perdón en grados (0-10). show muestra los contadores de diagnóstico, reset los pone en cero.
 chimera_interpolate_extrapolate_command_help                                    Dibuja los objetos medio tick por delante de su posición interpolada, suavizado para que el movimiento siga siendo fluido como la interpolación normal.
 chimera_interpolate_help                                                        Mejora la apariencia del movimiento y animación de objetos. (¡Intensivo en CPU!)
 chimera_language_command_available_languages                                    Idiomas disponibles:

@@ -7,12 +7,15 @@
 
 namespace Chimera {
     /**
-     * Set up the hitreg forgiveness module. This starts the post-tick
-     * aim nudge that helps shots land when the crosshair is very
-     * close to (but not quite on) an enemy. The nudge runs after the
-     * engine's tick (a pre-tick write is discarded by the engine's
-     * per-tick aim recomputation) and corrects the aim together with
-     * the first-person camera, so the crosshair and the bullet agree.
+     * Set up the hitreg forgiveness module. The part that reaches the
+     * shot is the weapon-tag route: the pistol's autoaim angle (and
+     * deviation cap) in the loaded map's tags are widened to the
+     * forgiveness cone, so the engine's own fire-time autoaim bends
+     * near-miss shots onto the enemy. The older aim/camera/look
+     * nudges are kept as a refinement, but the engine re-derives the
+     * aim every tick from the mouse look input and erases them
+     * (diagnostic: aim erased 41 vs aim kept 2), so on their own
+     * they do not make shots land.
      */
     void set_up_hitreg_forgiveness() noexcept;
 
@@ -48,6 +51,14 @@ namespace Chimera {
     std::uint64_t hitreg_forgiveness_aim_drifted() noexcept;
     float hitreg_forgiveness_last_aim_drift() noexcept;
     void hitreg_forgiveness_reset_stats() noexcept;
+
+    /**
+     * Pistol autoaim angle currently applied by the module, in
+     * degrees, or -1 if the pistol tag was not found in the loaded
+     * map. This is what the engine's fire-time autoaim will bend
+     * bullets within; it should match the forgiveness cone.
+     */
+    float hitreg_forgiveness_weapon_autoaim_deg() noexcept;
 }
 
 #endif
