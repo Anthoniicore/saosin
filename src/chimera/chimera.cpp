@@ -212,8 +212,9 @@ namespace Chimera {
                     set_up_aim_assist_fix();
                 }
 
-                // Hitreg forgiveness: aim assist for mouse players too, plus
-                // a small aim nudge when the crosshair is just off target.
+                // Hitreg forgiveness: a small aim nudge when the crosshair
+                // is just off target (only while firing; free mouse
+                // movement is untouched).
                 set_up_hitreg_forgiveness();
 
                 // Why would Halo PC even have this check? lol

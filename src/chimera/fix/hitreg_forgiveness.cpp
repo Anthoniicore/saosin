@@ -11,8 +11,9 @@
 #include "../math_trig/math_trig.hpp"
 
 extern "C" {
-    // Read by fix/aim_assist.S: when 1, the engine's aim assist also runs for
-    // mouse players instead of being skipped.
+    // Module on/off flag: when 1, the pre-tick forgiveness nudge is active.
+    // It does not touch the engine's aim assist (mouse aim assist was
+    // removed because it fought free mouse movement).
     std::uint8_t hitreg_forgiveness_on = 1;
 }
 
