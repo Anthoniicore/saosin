@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <cmath>
+#include <cstring>
 
 #include "hitreg_forgiveness.hpp"
 #include "../chimera.hpp"
@@ -87,22 +88,56 @@ namespace Chimera {
     static float forgiveness_pistol_stock_deviation = 0.0f;
     static bool forgiveness_map_load_event_on = false;
 
+    // Is a map's tag data actually loaded? The tag header lives at a
+    // fixed address (0x40440000) and literally says "tags" when a map
+    // is loaded. This matters because Chimera's constructor runs at
+    // DLL load, before any map loads, and set_up_hitreg_forgiveness()
+    // calls apply_forgiveness_weapon_angles() from there: reading the
+    // tag array before a map exists dereferences garbage (or
+    // unmapped memory) and crashes DLL init, which Windows reports
+    // as "strings.dll is missing" even though the file is right
+    // there. That is exactly what the 562f3b8 build did -- the
+    // previous build (2edd35b) never touched tags at init and loaded
+    // fine. So: never touch tags unless this says a map is loaded.
+    // The map-load event applies the angles when a map actually
+    // loads, so nothing is lost by skipping the init-time call.
+    static bool forgiveness_tags_loaded() noexcept {
+        const auto &header = get_tag_data_header();
+        return std::memcmp(&header.tags_literal, "tags", 4) == 0 &&
+               header.tag_array != nullptr &&
+               header.tag_count > 0 && header.tag_count < 100000;
+    }
+
     // Widen (or restore) the pistol's autoaim angles. Called on map
     // load, when the module is toggled and when the cone changes, so
     // the tag always matches the current setting.
     static void apply_forgiveness_weapon_angles() noexcept {
-        // Module off or cone 0: put the stock angles back.
-        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
-            if(forgiveness_pistol_tag_data) {
-                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_pistol_stock_autoaim;
-                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_pistol_stock_deviation;
-                forgiveness_pistol_tag_data = nullptr;
-            }
+        // No map loaded (DLL init, main menu with no map, ...): do
+        // nothing. Touching the tag array here is what crashed DLL
+        // init; the map-load event will apply the angles once a map
+        // is actually loaded.
+        if(!forgiveness_tags_loaded()) {
             return;
         }
 
         auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
         if(!tag || !tag->data) {
+            // No pistol tag in this map: forget any tag patched in a
+            // previous map, so the stale pointer is never written back.
+            forgiveness_pistol_tag_data = nullptr;
+            return;
+        }
+
+        // Module off or cone 0: put the stock angles back, but only
+        // if this is still the tag we patched -- after a map change
+        // the stored pointer may be stale, and writing stock angles
+        // into another map's tag data would corrupt it.
+        if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
+            if(forgiveness_pistol_tag_data && forgiveness_pistol_tag_data == tag->data) {
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_pistol_stock_autoaim;
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_pistol_stock_deviation;
+            }
+            forgiveness_pistol_tag_data = nullptr;
             return;
         }
 
@@ -494,7 +529,14 @@ namespace Chimera {
     }
 
     float hitreg_forgiveness_weapon_autoaim_deg() noexcept {
-        if(!forgiveness_pistol_tag_data) {
+        if(!forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
+            return -1.0f;
+        }
+        // Only report the angle if the stored pointer is still this
+        // map's pistol tag: after a map change it may be stale, and
+        // reading it would return garbage (or fault if unmapped).
+        auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
+        if(!tag || !tag->data || tag->data != forgiveness_pistol_tag_data) {
             return -1.0f;
         }
         float angle = *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
