@@ -36,6 +36,9 @@ namespace Chimera {
     // Set for if interpolation is enabled
     bool interpolation_enabled = false;
 
+    // Extrapolate rendered objects one tick ahead (see object.cpp).
+    bool interpolate_extrapolate = true;
+
     static void on_tick() noexcept {
         // Prevent interpolation when the game is paused
         if(game_paused()) {

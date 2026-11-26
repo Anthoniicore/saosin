@@ -195,6 +195,7 @@ namespace Chimera {
 
         // Enhancements
         ADD_COMMAND("chimera_ambient_volume", "chimera_category_enhancement", "client", ambient_volume_command, true, 0, 1);
+        ADD_COMMAND("chimera_hitreg_forgiveness", "chimera_category_enhancement", "client", hitreg_forgiveness_command, true, 0, 1);
         this->p_commands.emplace_back("chimera_block_all_bullshit", localize("chimera_category_enhancement"), "client", localize("chimera_block_all_bullshit_help"), Chimera::block_all_bullshit_command, false, 0, 0);
         ADD_COMMAND("chimera_block_buffering", "chimera_category_enhancement", "client_disable_buffering", block_buffering_command, true, 0, 1);
         ADD_COMMAND("chimera_block_extra_weapon", "chimera_category_enhancement", "client_block_extra_weapon", block_extra_weapon_command, false, 0, 0);
@@ -230,6 +231,7 @@ namespace Chimera {
         ADD_COMMAND("chimera_fov_vehicle", "chimera_category_visual", "client", fov_vehicle_command, true, 0, 1);
         ADD_COMMAND("chimera_fov_cinematic", "chimera_category_visual", "client", fov_cinematic_command, true, 0, 1);
         ADD_COMMAND("chimera_interpolate", "chimera_category_visual", "client", interpolate_command, true, 0, 1);
+        ADD_COMMAND("chimera_interpolate_extrapolate", "chimera_category_visual", "client", interpolate_extrapolate_command, true, 0, 1);
         ADD_COMMAND("chimera_model_detail", "chimera_category_visual", "client_lod", model_detail_command, true, 0, 1);
         ADD_COMMAND("chimera_shrink_empty_weapons", "chimera_category_visual", "client", shrink_empty_weapons_command, true, 0, 1);
         ADD_COMMAND("chimera_simple_score_screen", "chimera_category_visual", "client_score_screen", simple_score_screen_command, true, 0, 1);

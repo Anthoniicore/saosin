@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include <cmath>
+
 #include "../../signature/signature.hpp"
 #include "../../halo_data/object.hpp"
 #include "../../math_trig/math_trig.hpp"
@@ -49,6 +51,26 @@ namespace Chimera {
 
     static void copy_objects() noexcept;
     static void interpolate_object(std::size_t);
+
+    // Extrapolate a point one tick ahead of the interpolated position, so the
+    // drawn object is where it will be when the next tick simulates it
+    // (instead of up to a full tick behind, which is what plain interpolation
+    // shows). The extra offset is scaled by progress so the rendered position
+    // stays continuous when the tick advances, and it is clamped so a sudden
+    // direction change can never throw the object far from its real position.
+    static void extrapolate_point(const Point3D &before, const Point3D &after, Point3D &out, float progress, float max_extra) noexcept {
+        interpolate_point(before, after, out, progress);
+        float ex = (after.x - before.x) * progress;
+        float ey = (after.y - before.y) * progress;
+        float ez = (after.z - before.z) * progress;
+        float extra_sq = ex*ex + ey*ey + ez*ez;
+        float max_extra_sq = max_extra * max_extra;
+        if(extra_sq > max_extra_sq && extra_sq > 0.0f) {
+            float s = std::sqrt(max_extra_sq / extra_sq);
+            ex *= s; ey *= s; ez *= s;
+        }
+        out.x += ex; out.y += ey; out.z += ez;
+    }
 
     void interpolate_object_before() noexcept {
         // Check if a tick has passed. If so, swap buffers and copy new objects.
@@ -117,8 +139,18 @@ namespace Chimera {
             interpolate_object(current_tick_object.children[i]);
         }
 
-        // Interpolate the center thingymajigabobit.
-        interpolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress);
+        // Interpolate the center thingymajigabobit. Bipeds and vehicles are
+        // extrapolated one tick ahead (when enabled) so the drawn enemy is
+        // where it will be when the next tick simulates it; everything else
+        // keeps the plain interpolation.
+        bool extrapolate = interpolate_extrapolate && (object->type == OBJECT_TYPE_BIPED || object->type == OBJECT_TYPE_VEHICLE);
+        float max_extra = (object->type == OBJECT_TYPE_BIPED) ? 2.5f : 7.5f;
+        if(extrapolate) {
+            extrapolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress, max_extra);
+        }
+        else {
+            interpolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress);
+        }
 
         auto *nodes = object->nodes();
 
@@ -127,8 +159,13 @@ namespace Chimera {
             auto &node_current = current_tick_object.nodes[n];
             auto &node_before = previous_tick_object.nodes[n];
 
-            // Interpolate position
-            interpolate_point(node_before.position, node_current.position, node.position, interpolation_tick_progress);
+            // Interpolate position (extrapolated for bipeds/vehicles)
+            if(extrapolate) {
+                extrapolate_point(node_before.position, node_current.position, node.position, interpolation_tick_progress, max_extra);
+            }
+            else {
+                interpolate_point(node_before.position, node_current.position, node.position, interpolation_tick_progress);
+            }
 
             // Interpolate scale
             node.scale = node_before.scale + (node_current.scale - node_before.scale) * interpolation_tick_progress;

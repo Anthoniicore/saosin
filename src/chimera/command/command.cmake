@@ -37,6 +37,7 @@ set(COMMAND_FILES
     ${COMMAND_DIR}/client/debug/show_fps.cpp
     # vk.cpp removed: requires host Vulkan headers and was dropped upstream (SnowyMouse master)
     ${COMMAND_DIR}/client/enhancement/ambient_volume.cpp
+    ${COMMAND_DIR}/client/enhancement/hitreg_forgiveness.cpp
     ${COMMAND_DIR}/client/enhancement/block_all_bullshit.cpp
     ${COMMAND_DIR}/client/enhancement/block_buffering.cpp
     ${COMMAND_DIR}/client/enhancement/block_extra_weapon.cpp
@@ -66,6 +67,7 @@ set(COMMAND_FILES
     ${COMMAND_DIR}/client/visual/console_prompt_color.cpp
     ${COMMAND_DIR}/client/visual/fov.cpp
     ${COMMAND_DIR}/client/visual/interpolate.cpp
+    ${COMMAND_DIR}/client/visual/interpolate_extrapolate.cpp
     ${COMMAND_DIR}/client/visual/meme_zone.cpp
     ${COMMAND_DIR}/client/visual/model_detail.cpp
     ${COMMAND_DIR}/client/visual/simple_score_screen.cpp

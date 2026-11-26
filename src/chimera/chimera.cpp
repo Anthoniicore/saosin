@@ -36,6 +36,7 @@
 #include "fix/abolish_safe_mode.hpp"
 #include "fix/blue_32bit_color_fix.hpp"
 #include "fix/aim_assist.hpp"
+#include "fix/hitreg_forgiveness.hpp"
 #include "fix/bullshit_server_data.hpp"
 #include "fix/invalid_command_crash.hpp"
 #include "fix/death_reset_time.hpp"
@@ -210,6 +211,10 @@ namespace Chimera {
                 if(chimera->feature_present("client_widescreen_custom_edition")) {
                     set_up_aim_assist_fix();
                 }
+
+                // Hitreg forgiveness: aim assist for mouse players too, plus
+                // a small aim nudge when the crosshair is just off target.
+                set_up_hitreg_forgiveness();
 
                 // Why would Halo PC even have this check? lol
                 if(game_engine() == GameEngine::GAME_ENGINE_RETAIL && chimera->feature_present("client_retail_custom_map_lobby")) {
