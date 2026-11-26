@@ -95,6 +95,26 @@ namespace Chimera {
     // warthog's angles).
     static bool forgiveness_map_loaded = false;
 
+    // Fallback when the pistol cannot be found by path: the tag
+    // paths in the map may be scrambled (protected/custom map) or
+    // the pistol tag may simply not be found by name, so the path
+    // lookup fails even with the map fully loaded. The tag CLASS is
+    // never scrambled (the game needs it), so the fallback patches
+    // every weapon-class tag in the array instead -- the pistol is
+    // a weapon tag, so it is covered whatever its path is. Stock
+    // angles are saved per tag so they can be put back. This only
+    // runs when the path lookup failed; on a normal map the pistol
+    // is found by path and this never runs.
+    struct ForgivenessPatchedWeaponTag {
+        std::byte *data;
+        float stock_autoaim;
+        float stock_deviation;
+    };
+    static constexpr std::size_t FORGIVENESS_MAX_PATCHED_WEAPON_TAGS = 32;
+    static ForgivenessPatchedWeaponTag forgiveness_patched_weapon_tags[FORGIVENESS_MAX_PATCHED_WEAPON_TAGS];
+    static std::size_t forgiveness_patched_weapon_tag_count = 0;
+    static bool forgiveness_weapon_tags_patched = false;
+
     // Is a map's tag data actually loaded? The tag header lives at a
     // fixed address (0x40440000) and literally says "tags" when a map
     // is loaded. NOTE: this check alone is NOT enough during DLL
@@ -120,6 +140,56 @@ namespace Chimera {
                header.tag_count > 0 && header.tag_count < 100000;
     }
 
+    // A tag data pointer is usable only if it is a real pointer. Some
+    // tags in a map are "Missingno" entries whose data is 0xFFFFFFFF
+    // (see map_is_protected); writing angles there would fault.
+    static bool forgiveness_tag_data_usable(const std::byte *data) noexcept {
+        return data != nullptr && reinterpret_cast<std::uintptr_t>(data) != 0xFFFFFFFF;
+    }
+
+    // Put back the stock angles of every weapon tag this module
+    // patched (the pistol by path, and/or the weapon tags found by
+    // the class scan) and forget them. Only call this while tag
+    // memory is valid (apply_forgiveness_weapon_angles gates on
+    // that). Each stored pointer is checked against the current
+    // map's tag array first, so a pointer from a previous map is
+    // never written to.
+    static void restore_forgiveness_weapon_angles() noexcept {
+        if(forgiveness_pistol_tag_data) {
+            // Only write back if this is still the pistol tag: after
+            // a map change the stored pointer may be stale.
+            auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
+            if(tag && tag->data == forgiveness_pistol_tag_data) {
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_pistol_stock_autoaim;
+                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_pistol_stock_deviation;
+            }
+            forgiveness_pistol_tag_data = nullptr;
+        }
+        if(forgiveness_patched_weapon_tag_count > 0) {
+            const auto &header = get_tag_data_header();
+            auto *tags = header.tag_array;
+            auto tag_count = header.tag_count;
+            for(std::size_t i = 0; i < tag_count; i++) {
+                if(tags[i].primary_class != TagClassInt::TAG_CLASS_WEAPON) {
+                    continue;
+                }
+                auto *data = tags[i].data;
+                if(!forgiveness_tag_data_usable(data)) {
+                    continue;
+                }
+                for(std::size_t j = 0; j < forgiveness_patched_weapon_tag_count; j++) {
+                    if(forgiveness_patched_weapon_tags[j].data == data) {
+                        *reinterpret_cast<float *>(data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_patched_weapon_tags[j].stock_autoaim;
+                        *reinterpret_cast<float *>(data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_patched_weapon_tags[j].stock_deviation;
+                        break;
+                    }
+                }
+            }
+            forgiveness_patched_weapon_tag_count = 0;
+            forgiveness_weapon_tags_patched = false;
+        }
+    }
+
     // Widen (or restore) the pistol's autoaim angles. Called on map
     // load, when the module is toggled and when the cone changes, so
     // the tag always matches the current setting.
@@ -140,38 +210,76 @@ namespace Chimera {
             return;
         }
 
-        auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
-        if(!tag || !tag->data) {
-            // No pistol tag in this map: forget any tag patched in a
-            // previous map, so the stale pointer is never written back.
-            forgiveness_pistol_tag_data = nullptr;
-            return;
-        }
-
-        // Module off or cone 0: put the stock angles back, but only
-        // if this is still the tag we patched -- after a map change
-        // the stored pointer may be stale, and writing stock angles
-        // into another map's tag data would corrupt it.
+        // Module off or cone 0: put the stock angles back.
         if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
-            if(forgiveness_pistol_tag_data && forgiveness_pistol_tag_data == tag->data) {
-                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = forgiveness_pistol_stock_autoaim;
-                *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = forgiveness_pistol_stock_deviation;
-            }
-            forgiveness_pistol_tag_data = nullptr;
+            restore_forgiveness_weapon_angles();
             return;
-        }
-
-        // New tag data (a freshly loaded map): remember the stock
-        // angles before overwriting them.
-        if(tag->data != forgiveness_pistol_tag_data) {
-            forgiveness_pistol_stock_autoaim = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
-            forgiveness_pistol_stock_deviation = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET);
-            forgiveness_pistol_tag_data = tag->data;
         }
 
         float angle = static_cast<float>(DEGREES_TO_RADIANS(forgiveness_cone_degrees));
-        *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = angle;
-        *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = angle;
+
+        // Primary: the pistol, by path. On a normal map this finds
+        // it and nothing else below runs.
+        auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
+        if(tag && forgiveness_tag_data_usable(tag->data)) {
+            // New tag data (a freshly loaded map): remember the stock
+            // angles before overwriting them.
+            if(tag->data != forgiveness_pistol_tag_data) {
+                forgiveness_pistol_stock_autoaim = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+                forgiveness_pistol_stock_deviation = *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET);
+                forgiveness_pistol_tag_data = tag->data;
+            }
+            *reinterpret_cast<float *>(tag->data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = angle;
+            *reinterpret_cast<float *>(tag->data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = angle;
+            return;
+        }
+
+        // Fallback: the pistol was not found by path even with the
+        // map fully loaded. The tag paths in this map may be
+        // scrambled (protected/custom map) or the pistol tag may
+        // simply not be found by name -- either way, no path-based
+        // lookup can work here. The tag CLASS is never scrambled
+        // (the game needs it), so patch every weapon-class tag in
+        // the array instead: the pistol is a weapon tag, so it is
+        // covered whatever its path is. Stock angles are saved per
+        // tag the first time so they can be put back. Already-patched
+        // tags just get the (possibly new) angle re-written, so a
+        // cone change takes effect without reloading the map. If no
+        // weapon tag is found at all, nothing is patched and the
+        // retry keeps trying until the tag is patched.
+        const auto &header = get_tag_data_header();
+        auto *tags = header.tag_array;
+        auto tag_count = header.tag_count;
+        for(std::size_t i = 0; i < tag_count; i++) {
+            if(tags[i].primary_class != TagClassInt::TAG_CLASS_WEAPON) {
+                continue;
+            }
+            auto *data = tags[i].data;
+            if(!forgiveness_tag_data_usable(data)) {
+                continue;
+            }
+            bool known = false;
+            for(std::size_t j = 0; j < forgiveness_patched_weapon_tag_count; j++) {
+                if(forgiveness_patched_weapon_tags[j].data == data) {
+                    known = true;
+                    break;
+                }
+            }
+            if(!known) {
+                if(forgiveness_patched_weapon_tag_count >= FORGIVENESS_MAX_PATCHED_WEAPON_TAGS) {
+                    continue;
+                }
+                forgiveness_patched_weapon_tags[forgiveness_patched_weapon_tag_count].data = data;
+                forgiveness_patched_weapon_tags[forgiveness_patched_weapon_tag_count].stock_autoaim = *reinterpret_cast<float *>(data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+                forgiveness_patched_weapon_tags[forgiveness_patched_weapon_tag_count].stock_deviation = *reinterpret_cast<float *>(data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET);
+                forgiveness_patched_weapon_tag_count++;
+            }
+            *reinterpret_cast<float *>(data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET) = angle;
+            *reinterpret_cast<float *>(data + WEAPON_TAG_DEVIATION_ANGLE_OFFSET) = angle;
+        }
+        if(forgiveness_patched_weapon_tag_count > 0) {
+            forgiveness_weapon_tags_patched = true;
+        }
     }
 
     static void hitreg_forgiveness_map_load() noexcept {
@@ -196,6 +304,8 @@ namespace Chimera {
         // trusted afterwards. The retry re-patches once the new map
         // is actually loaded.
         forgiveness_pistol_tag_data = nullptr;
+        forgiveness_patched_weapon_tag_count = 0;
+        forgiveness_weapon_tags_patched = false;
         apply_forgiveness_weapon_angles();
     }
 
@@ -206,7 +316,7 @@ namespace Chimera {
     // until the tag is patched and then costs nothing (the stored
     // pointer is non-null, so it returns immediately).
     static void retry_forgiveness_weapon_angles(UnitDynamicObject *unit) noexcept {
-        if(forgiveness_pistol_tag_data || !unit || unit->health <= 0.0f) {
+        if(forgiveness_pistol_tag_data || forgiveness_weapon_tags_patched || !unit || unit->health <= 0.0f) {
             return;
         }
         apply_forgiveness_weapon_angles();
@@ -609,18 +719,69 @@ namespace Chimera {
             return -1.0f;
         }
         retry_forgiveness_weapon_angles(unit);
-        if(!forgiveness_pistol_tag_data || !forgiveness_tags_loaded()) {
+        // Pistol patched by path: report its angle, but only if the
+        // stored pointer is still this map's pistol tag: after a map
+        // change it may be stale, and reading it would return garbage
+        // (or fault if unmapped).
+        if(forgiveness_pistol_tag_data && forgiveness_tags_loaded()) {
+            auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
+            if(tag && tag->data && tag->data == forgiveness_pistol_tag_data) {
+                float angle = *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+                return static_cast<float>(RADIANS_TO_DEGREES(angle));
+            }
             return -2.0f;
         }
-        // Only report the angle if the stored pointer is still this
-        // map's pistol tag: after a map change it may be stale, and
-        // reading it would return garbage (or fault if unmapped).
-        auto *tag = get_tag(FORGIVENESS_PISTOL_TAG_PATH, TagClassInt::TAG_CLASS_WEAPON);
-        if(!tag || !tag->data || tag->data != forgiveness_pistol_tag_data) {
-            return -2.0f;
+        // Patched by the class scan: every patched tag got the same
+        // angle, so report the first one's.
+        if(forgiveness_patched_weapon_tag_count > 0) {
+            float angle = *reinterpret_cast<float *>(forgiveness_patched_weapon_tags[0].data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
+            return static_cast<float>(RADIANS_TO_DEGREES(angle));
         }
-        float angle = *reinterpret_cast<float *>(forgiveness_pistol_tag_data + WEAPON_TAG_AUTOAIM_ANGLE_OFFSET);
-        return static_cast<float>(RADIANS_TO_DEGREES(angle));
+        return -2.0f;
+    }
+
+    // Number of tags in the loaded map's tag array, or 0 if no map
+    // is loaded. Only touches tag memory when a live client biped
+    // proves a map is fully loaded (see the getter above).
+    std::uint64_t hitreg_forgiveness_tag_count() noexcept {
+        if(!forgiveness_map_loaded) {
+            return 0;
+        }
+        auto *unit = get_client_unit();
+        if(!unit || unit->health <= 0.0f) {
+            return 0;
+        }
+        if(!forgiveness_tags_loaded()) {
+            return 0;
+        }
+        return get_tag_data_header().tag_count;
+    }
+
+    // Number of weapon-class tags in the loaded map's tag array, or
+    // 0 if no map is loaded. This scans by class only and never
+    // reads a tag path, so it works even on maps whose paths are
+    // scrambled (protected/custom maps). If this is > 0 while the
+    // pistol is "not found", the path lookup is the problem, not
+    // the tag array.
+    std::uint64_t hitreg_forgiveness_weapon_tag_count() noexcept {
+        if(!forgiveness_map_loaded) {
+            return 0;
+        }
+        auto *unit = get_client_unit();
+        if(!unit || unit->health <= 0.0f) {
+            return 0;
+        }
+        if(!forgiveness_tags_loaded()) {
+            return 0;
+        }
+        const auto &header = get_tag_data_header();
+        std::uint64_t count = 0;
+        for(std::size_t i = 0; i < header.tag_count; i++) {
+            if(header.tag_array[i].primary_class == TagClassInt::TAG_CLASS_WEAPON) {
+                count++;
+            }
+        }
+        return count;
     }
 
     void hitreg_forgiveness_reset_stats() noexcept {

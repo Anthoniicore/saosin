@@ -32,6 +32,9 @@ namespace Chimera {
             else {
                 console_output("pistol autoaim %.1f deg", static_cast<double>(weapon_autoaim));
             }
+            if(weapon_autoaim != -1.0f) {
+                console_output("tags %llu | weapon tags %llu", static_cast<unsigned long long>(hitreg_forgiveness_tag_count()), static_cast<unsigned long long>(hitreg_forgiveness_weapon_tag_count()));
+            }
             console_output("nudges %llu | candidates %llu | no candidate %llu", static_cast<unsigned long long>(hitreg_forgiveness_nudges()), static_cast<unsigned long long>(hitreg_forgiveness_candidates()), static_cast<unsigned long long>(hitreg_forgiveness_no_candidate()));
             if(last_angle < 0.0f) {
                 console_output("last nudge: none yet | injections %llu", static_cast<unsigned long long>(hitreg_forgiveness_injections()));

@@ -55,13 +55,28 @@ namespace Chimera {
     /**
      * Pistol autoaim angle currently applied by the module, in
      * degrees, or -1 if no map is loaded (menu) and -2 if a map is
-     * loaded but the pistol tag was not found/patched. This is what
+     * loaded but no weapon tag was found/patched. This is what
      * the engine's fire-time autoaim will bend bullets within; it
      * should match the forgiveness cone. Calling this in a loaded
      * map retries the patch if it was never applied (the map-load
-     * event fires before the tags are in).
+     * event fires before the tags are in). The pistol is found by
+     * path first; if that fails, every weapon-class tag in the map
+     * is patched instead (the tag class is never scrambled, even
+     * on protected/custom maps whose paths are), and this reports
+     * the angle of the first one patched.
      */
     float hitreg_forgiveness_weapon_autoaim_deg() noexcept;
+
+    /**
+     * Number of tags in the loaded map (tag_count from the tag
+     * header), and number of weapon-class tags found by scanning
+     * the tag array by class (no path is read). Both are 0 when no
+     * map is loaded. Read-only diagnostics for the weapon-tag
+     * lookup: if the tag count is > 0 but the pistol is "not
+     * found", the path lookup is the problem, not the tag array.
+     */
+    std::uint64_t hitreg_forgiveness_tag_count() noexcept;
+    std::uint64_t hitreg_forgiveness_weapon_tag_count() noexcept;
 }
 
 #endif
