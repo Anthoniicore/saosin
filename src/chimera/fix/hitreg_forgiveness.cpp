@@ -5,13 +5,14 @@
 #include "hitreg_forgiveness.hpp"
 #include "../chimera.hpp"
 #include "../event/tick.hpp"
+#include "../halo_data/camera.hpp"
 #include "../halo_data/multiplayer.hpp"
 #include "../halo_data/object.hpp"
 #include "../halo_data/player.hpp"
 #include "../math_trig/math_trig.hpp"
 
 extern "C" {
-    // Module on/off flag: when 1, the pre-tick forgiveness nudge is active.
+    // Module on/off flag: when 1, the post-tick forgiveness nudge is active.
     // It does not touch the engine's aim assist (mouse aim assist was
     // removed because it fought free mouse movement).
     std::uint8_t hitreg_forgiveness_on = 1;
@@ -29,7 +30,14 @@ namespace Chimera {
     static std::uint64_t forgiveness_no_candidate = 0;
     static float forgiveness_last_nudge_angle = -1.0f;
 
-    static void hitreg_forgiveness_pretick() noexcept {
+    // The nudge runs as a tick event, i.e. AFTER the engine's tick. This is
+    // deliberate: the engine re-derives aim/desired_aim from the player's
+    // look input during its tick, so the old pre-tick write was discarded
+    // before the weapon fired (the diagnostic counters proved it: hundreds
+    // of nudges written, yet shots at a static target 36 m away never made
+    // the shield flare). Writing here makes the corrected aim the starting
+    // point for the next tick, so the next shot actually uses it.
+    static void hitreg_forgiveness_tick() noexcept {
         // Only while the module is on and the cone allows a nudge.
         if(!::hitreg_forgiveness_on || forgiveness_cone_degrees <= 0.0f) {
             return;
@@ -133,28 +141,53 @@ namespace Chimera {
             return;
         }
 
-        // Pull the aim onto the enemy's center. The crosshair (camera) does
-        // not move; only the direction the weapon fires along is corrected.
+        // Pull the aim onto the enemy's center. The crosshair (camera) is
+        // corrected together with the aim so the two agree: the camera's
+        // forward vector is derived from the aim each tick, so writing only
+        // the camera would move the crosshair without moving the bullet (and
+        // the interpolate module snapshots/restores the camera every frame
+        // anyway). The camera is only touched in first person -- in a
+        // vehicle or third person the camera is not the aim -- and only
+        // while firing, so the mouse stays completely free when not shooting.
         unit->aim = best_dir;
         unit->desired_aim = best_dir;
+        if(camera_type() == CameraType::CAMERA_FIRST_PERSON) {
+            auto &camera = camera_data();
+            camera.orientation[0] = best_dir;
+            // Keep the view basis valid: re-orthogonalize the up vector
+            // against the new forward vector (Gram-Schmidt) and normalize.
+            // If the two are (nearly) parallel, leave the up vector alone.
+            float dot = camera.orientation[1].x * best_dir.x + camera.orientation[1].y * best_dir.y + camera.orientation[1].z * best_dir.z;
+            Point3D up = {
+                camera.orientation[1].x - best_dir.x * dot,
+                camera.orientation[1].y - best_dir.y * dot,
+                camera.orientation[1].z - best_dir.z * dot
+            };
+            float up_len = std::sqrt(up.x*up.x + up.y*up.y + up.z*up.z);
+            if(up_len > 0.1f) {
+                camera.orientation[1].x = up.x / up_len;
+                camera.orientation[1].y = up.y / up_len;
+                camera.orientation[1].z = up.z / up_len;
+            }
+        }
         forgiveness_nudges++;
         forgiveness_last_nudge_angle = best_angle;
     }
 
     void set_up_hitreg_forgiveness() noexcept {
         // The aim-assist hook itself is installed by set_up_aim_assist_fix();
-        // this module only arms the extra flag and the pretick nudge.
+        // this module only arms the extra flag and the post-tick nudge.
         set_hitreg_forgiveness_enabled(true);
     }
 
     void set_hitreg_forgiveness_enabled(bool enabled) noexcept {
         ::hitreg_forgiveness_on = enabled ? 1 : 0;
         if(enabled && !forgiveness_events_on) {
-            add_pretick_event(hitreg_forgiveness_pretick);
+            add_tick_event(hitreg_forgiveness_tick);
             forgiveness_events_on = true;
         }
         else if(!enabled && forgiveness_events_on) {
-            remove_pretick_event(hitreg_forgiveness_pretick);
+            remove_tick_event(hitreg_forgiveness_tick);
             forgiveness_events_on = false;
         }
     }

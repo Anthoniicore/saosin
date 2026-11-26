@@ -7,9 +7,12 @@
 
 namespace Chimera {
     /**
-     * Set up the hitreg forgiveness module. This starts the pre-tick
+     * Set up the hitreg forgiveness module. This starts the post-tick
      * aim nudge that helps shots land when the crosshair is very
-     * close to (but not quite on) an enemy.
+     * close to (but not quite on) an enemy. The nudge runs after the
+     * engine's tick (a pre-tick write is discarded by the engine's
+     * per-tick aim recomputation) and corrects the aim together with
+     * the first-person camera, so the crosshair and the bullet agree.
      */
     void set_up_hitreg_forgiveness() noexcept;
 
