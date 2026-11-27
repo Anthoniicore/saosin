@@ -21,6 +21,17 @@ find_package(PythonInterp 3.7 REQUIRED)
 # We should have git, too, but it's not 100% required
 find_package(Git)
 
+# Opus codec required by the client voice-chat subsystem.
+include(FetchContent)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(opus
+    GIT_REPOSITORY https://github.com/xiph/opus.git
+    GIT_TAG v1.5.2
+)
+FetchContent_MakeAvailable(opus)
+
 # If we have Git, try to see if we are in a git repo
 if(${GIT_FOUND})
     execute_process(
