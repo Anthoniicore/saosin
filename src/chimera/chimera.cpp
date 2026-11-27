@@ -81,6 +81,7 @@ namespace Chimera {
     static void initial_tick();
     static void set_up_delayed_init();
     static void april_fools() noexcept;
+    void set_up_vibration() noexcept;
 
     Chimera::Chimera() : p_signatures(find_all_signatures()) {
         chimera = this;
@@ -286,6 +287,9 @@ namespace Chimera {
 
                 // RAICHU
                 set_up_controller();
+
+                // Controller vibration
+                set_up_vibration();
             }
             else {
                 enable_output(true);
