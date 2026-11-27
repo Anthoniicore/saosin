@@ -28,6 +28,7 @@ set(COMMAND_FILES
     ${COMMAND_DIR}/client/controller/deadzones.S
     ${COMMAND_DIR}/client/controller/diagonals.cpp
     ${COMMAND_DIR}/client/controller/vibration.cpp
+    ${COMMAND_DIR}/client/voice/voice.cpp
     ${COMMAND_DIR}/client/custom_chat/chat_block_ips.cpp
     ${COMMAND_DIR}/client/custom_chat/chat_block_server_messages.cpp
     ${COMMAND_DIR}/client/custom_chat/chat_color_help.cpp
