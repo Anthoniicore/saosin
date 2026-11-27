@@ -255,6 +255,15 @@ namespace Chimera {
         ADD_COMMAND("chimera_block_button_quotes", "chimera_category_controller", "client_quote_prompt", block_button_quotes_command, true, 0, 1);
         ADD_COMMAND("chimera_vibration", "chimera_category_controller", "client", vibration_command, true, 0, 2);
 
+        // Voice chat
+        ADD_COMMAND("chimera_voice", "voice", "client", voice_command, true, 0, 1);
+        ADD_COMMAND("chimera_voice_all", "voice", "client", voice_all_command, false, 0, 0);
+        ADD_COMMAND("chimera_voice_team", "voice", "client", voice_team_command, false, 0, 0);
+        ADD_COMMAND("chimera_voice_host", "voice", "client", voice_host_command, false, 2, 2);
+        ADD_COMMAND("chimera_voice_ptt", "voice", "client", voice_ptt_command, true, 0, 1);
+        ADD_COMMAND("chimera_voice_speakers", "voice", "client", voice_speakers_command, false, 0, 0);
+        ADD_COMMAND("chimera_voice_status", "voice", "client", voice_status_command, false, 0, 0);
+
         // Bookmark
         ADD_COMMAND("chimera_bookmark_list", "chimera_category_bookmark", "client", bookmark_list_command, false, 0, 0);
         ADD_COMMAND("chimera_bookmark_add", "chimera_category_bookmark", "client", bookmark_add_command, false, 0, 2);
