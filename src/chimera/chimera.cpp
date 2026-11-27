@@ -75,6 +75,7 @@
 #include "halo_data/port.hpp"
 #include "command/hotkey.hpp"
 #include "config/ini.hpp"
+#include "command/client/voice/voice.hpp"
 
 namespace Chimera {
     static Chimera *chimera;
@@ -290,6 +291,9 @@ namespace Chimera {
 
                 // Controller vibration
                 set_up_vibration();
+
+                // Voice chat connection lifecycle (preconnect + disconnect watcher).
+                set_up_voice_connection_watcher();
             }
             else {
                 enable_output(true);
