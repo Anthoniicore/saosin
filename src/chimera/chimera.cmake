@@ -173,6 +173,12 @@ add_library(chimera STATIC
     src/chimera/map_loading/map_loading.S
     src/chimera/master_server/master_server.cpp
     src/chimera/math_trig/math_trig.cpp
+    src/chimera/voice_chat/audio_capture.cpp
+    src/chimera/voice_chat/audio_playback.cpp
+    src/chimera/voice_chat/voice_chat.cpp
+    src/chimera/voice_chat/voice_codec.cpp
+    src/chimera/voice_chat/voice_packet.cpp
+    src/chimera/voice_chat/voice_transport.cpp
     src/chimera/miscellaneous/controller.cpp
     src/chimera/miscellaneous/controller.S
     src/chimera/output/draw_text.cpp
@@ -209,10 +215,11 @@ target_include_directories(chimera
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ext/curl/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ext/zstd/include"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/lua"
+    PRIVATE "${opus_SOURCE_DIR}/include"
 )
 
 # Set the name
-target_link_libraries(chimera shlwapi hac_map_downloader lua ${CMAKE_CURRENT_SOURCE_DIR}/ext/curl/lib/libcurl.a ws2_32)
+target_link_libraries(chimera shlwapi hac_map_downloader lua ${CMAKE_CURRENT_SOURCE_DIR}/ext/curl/lib/libcurl.a ws2_32 winmm ole32 uuid opus)
 
 # Target this
 target_include_directories(chimera PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ext/zstd/include)
