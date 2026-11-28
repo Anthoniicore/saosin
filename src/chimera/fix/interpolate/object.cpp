@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include <cmath>
+#include <chrono>
+#include <algorithm>
 
 #include "../../signature/signature.hpp"
 #include "../../halo_data/object.hpp"
+#include "../../halo_data/player.hpp"
 #include "../../math_trig/math_trig.hpp"
 #include "../../chimera.hpp"
 
@@ -28,6 +31,12 @@ namespace Chimera {
 
         /** Tag ID of the object. */
         TagID tag_id;
+
+        /** Parent object captured with this tick (vehicle when occupied). */
+        ObjectID parent = HaloID::null_id();
+
+        /** This biped left a parented vehicle during this tick. */
+        bool vehicle_exit = false;
 
         /** This is the position of the object's center. */
         Point3D center;
@@ -56,9 +65,12 @@ namespace Chimera {
     // plain interpolation, instead of snapping like raw extrapolation.
     static const float SMOOTH_EXTRAPOLATION_LEAD = 0.5f;
 
-    // Exponential smoothing factor applied to the drawn offset once per
-    // rendered frame. 0.3 closes most of the gap to the target in ~3 frames.
-    static const float SMOOTH_EXTRAPOLATION_SMOOTHING = 0.3f;
+    // Time constant for exponential smoothing. Unlike a fixed per-frame
+    // factor, this produces the same response at different render rates.
+    static const float SMOOTH_EXTRAPOLATION_SMOOTHING_RATE = 18.0f;
+    static float frame_delta_seconds = 1.0f / 60.0f;
+    static std::chrono::steady_clock::time_point previous_frame_time;
+    static bool has_previous_frame_time = false;
 
     // After a sharp direction change (angle between this tick's velocity and
     // the previous tick's velocity greater than ~60 degrees), the target
@@ -87,6 +99,40 @@ namespace Chimera {
     static void copy_objects() noexcept;
     static void interpolate_object(std::size_t);
 
+    static void update_frame_delta() noexcept {
+        auto now = std::chrono::steady_clock::now();
+        if(has_previous_frame_time) {
+            frame_delta_seconds = std::chrono::duration<float>(now - previous_frame_time).count();
+            frame_delta_seconds = std::max(0.0f, std::min(frame_delta_seconds, 0.1f));
+        }
+        previous_frame_time = now;
+        has_previous_frame_time = true;
+    }
+
+    // Scale prediction from no lead at 40 ms to the legacy half-tick lead
+    // at 80 ms. If player ownership/ping is unavailable, preserve legacy
+    // behavior rather than unexpectedly disabling extrapolation.
+    static float get_extrapolation_lead(const BaseDynamicObject &object) noexcept {
+        if(object.type != OBJECT_TYPE_BIPED && object.type != OBJECT_TYPE_VEHICLE) {
+            return SMOOTH_EXTRAPOLATION_LEAD;
+        }
+        auto *unit = reinterpret_cast<const UnitDynamicObject *>(&object);
+        if(unit->player_id.is_null()) {
+            return SMOOTH_EXTRAPOLATION_LEAD;
+        }
+        auto *player = PlayerTable::get_player_table().get_player(unit->player_id);
+        if(!player || player->ping == 0) {
+            return SMOOTH_EXTRAPOLATION_LEAD;
+        }
+        if(player->ping <= 40) {
+            return 0.0f;
+        }
+        if(player->ping >= 80) {
+            return SMOOTH_EXTRAPOLATION_LEAD;
+        }
+        return SMOOTH_EXTRAPOLATION_LEAD * (static_cast<float>(player->ping - 40) / 40.0f);
+    }
+
     // Ease one object's drawn extra offset toward its target for this frame.
     // The target is half a tick of travel in the object's current direction
     // (reduced right after a sharp direction change), clamped so a sudden
@@ -94,22 +140,25 @@ namespace Chimera {
     // the offset is (nearly) constant within a tick and only eased between
     // frames, the drawn object moves at real speed and never snaps, just like
     // plain interpolation — only shifted slightly ahead.
-    static void update_smoothed_extra(const Point3D &before, const Point3D &after, ExtrapolationState &state, float max_extra) noexcept {
-        float tx = (after.x - before.x) * SMOOTH_EXTRAPOLATION_LEAD * state.direction_factor;
-        float ty = (after.y - before.y) * SMOOTH_EXTRAPOLATION_LEAD * state.direction_factor;
-        float tz = (after.z - before.z) * SMOOTH_EXTRAPOLATION_LEAD * state.direction_factor;
+    static void update_smoothed_extra(const Point3D &before, const Point3D &after, ExtrapolationState &state, float max_extra, float lead) noexcept {
+        float tx = (after.x - before.x) * lead * state.direction_factor;
+        float ty = (after.y - before.y) * lead * state.direction_factor;
+        float tz = (after.z - before.z) * lead * state.direction_factor;
         float target_sq = tx*tx + ty*ty + tz*tz;
         float max_extra_sq = max_extra * max_extra;
         if(target_sq > max_extra_sq && target_sq > 0.0f) {
             float s = std::sqrt(max_extra_sq / target_sq);
             tx *= s; ty *= s; tz *= s;
         }
-        state.smoothed_extra.x += (tx - state.smoothed_extra.x) * SMOOTH_EXTRAPOLATION_SMOOTHING;
-        state.smoothed_extra.y += (ty - state.smoothed_extra.y) * SMOOTH_EXTRAPOLATION_SMOOTHING;
-        state.smoothed_extra.z += (tz - state.smoothed_extra.z) * SMOOTH_EXTRAPOLATION_SMOOTHING;
+        float smoothing = 1.0f - std::exp(-SMOOTH_EXTRAPOLATION_SMOOTHING_RATE * frame_delta_seconds);
+        state.smoothed_extra.x += (tx - state.smoothed_extra.x) * smoothing;
+        state.smoothed_extra.y += (ty - state.smoothed_extra.y) * smoothing;
+        state.smoothed_extra.z += (tz - state.smoothed_extra.z) * smoothing;
     }
 
     void interpolate_object_before() noexcept {
+        update_frame_delta();
+
         // Check if a tick has passed. If so, swap buffers and copy new objects.
         if(tick_passed) {
             if(current_tick == object_buffers[0]) {
@@ -183,12 +232,13 @@ namespace Chimera {
         // interpolation. Everything else keeps the plain interpolation.
         bool extrapolate = interpolate_extrapolate && (object->type == OBJECT_TYPE_BIPED || object->type == OBJECT_TYPE_VEHICLE);
         float max_extra = (object->type == OBJECT_TYPE_BIPED) ? 2.5f : 7.5f;
+        float extrapolation_lead = get_extrapolation_lead(*object);
         auto &extrapolation = extrapolation_state[index];
         interpolate_point(previous_tick_object.center, current_tick_object.center, object->center_position, interpolation_tick_progress);
         if(extrapolate) {
             // One smoothing step per rendered frame, shared by the center and
             // all nodes so the whole body moves as one, without shearing.
-            update_smoothed_extra(previous_tick_object.center, current_tick_object.center, extrapolation, max_extra);
+            update_smoothed_extra(previous_tick_object.center, current_tick_object.center, extrapolation, max_extra, extrapolation_lead);
             object->center_position.x += extrapolation.smoothed_extra.x;
             object->center_position.y += extrapolation.smoothed_extra.y;
             object->center_position.z += extrapolation.smoothed_extra.z;
@@ -262,6 +312,8 @@ namespace Chimera {
 
             // Get the number of model nodes.
             current_tick_object.tag_id = object->tag_id;
+            current_tick_object.parent = object->parent;
+            current_tick_object.vehicle_exit = false;
             auto *object_tag = get_tag(current_tick_object.tag_id.index.index);
             if(!object_tag) {
                 continue;
@@ -286,11 +338,37 @@ namespace Chimera {
             std::copy(nodes, nodes + current_tick_object.node_count, current_tick_object.nodes);
             current_tick_object.center = object->center_position;
 
-            // Bipeds get a max speed of 2.5 per tick before they aren't interpolated. Other objects get 7.5 world units.
-            static const float MAX_INTERPOLATION_DISTANCES[] = { 7.5*7.5, 2.5*2.5 };
+            // Normal biped movement is limited to 2.5 world units per tick.
+            // When a biped exits a moving vehicle, however, its world-space
+            // displacement can include the vehicle's travel. Account for
+            // that one transition only, with a hard cap so real teleports
+            // are still rejected.
+            float max_interpolation_distance = (object->type == OBJECT_TYPE_BIPED) ? 2.5f : 7.5f;
+            bool vehicle_exit = object->type == OBJECT_TYPE_BIPED &&
+                                !previous_tick[i].parent.is_null() &&
+                                current_tick_object.parent.is_null();
+            if(vehicle_exit) {
+                auto parent_index = previous_tick[i].parent.index.index;
+                if(parent_index < OBJECT_BUFFER_SIZE) {
+                    const auto &previous_vehicle = previous_tick[parent_index];
+                    const auto &current_vehicle = current_tick[parent_index];
+                    if(previous_vehicle.interpolate && current_vehicle.interpolate &&
+                       previous_vehicle.tag_id == current_vehicle.tag_id) {
+                        float vehicle_dx = current_vehicle.center.x - previous_vehicle.center.x;
+                        float vehicle_dy = current_vehicle.center.y - previous_vehicle.center.y;
+                        float vehicle_dz = current_vehicle.center.z - previous_vehicle.center.z;
+                        float vehicle_travel = std::sqrt(vehicle_dx * vehicle_dx + vehicle_dy * vehicle_dy + vehicle_dz * vehicle_dz);
+                        max_interpolation_distance += std::min(vehicle_travel, 12.5f);
+                    }
+                }
+            }
+            current_tick_object.vehicle_exit = vehicle_exit;
+            float max_interpolation_distance_sq = max_interpolation_distance * max_interpolation_distance;
 
-            // Let's check if the distance between the two points is too great (such as if the object was teleported).
-            current_tick_object.interpolate = distance_squared(current_tick_object.center, previous_tick[i].center) < MAX_INTERPOLATION_DISTANCES[object->type == OBJECT_TYPE_BIPED];
+            // A large unexplained jump (respawn/teleport/object reuse) still
+            // fails this test; only a confirmed vehicle-exit transition gets
+            // the bounded vehicle-motion allowance above.
+            current_tick_object.interpolate = distance_squared(current_tick_object.center, previous_tick[i].center) < max_interpolation_distance_sq;
 
             // Smooth extrapolation bookkeeping, once per tick: track this
             // tick's velocity and spot sharp direction changes.
@@ -314,6 +392,11 @@ namespace Chimera {
                 }
                 extrapolation.last_velocity = velocity;
                 extrapolation.has_velocity = true;
+                if(current_tick_object.vehicle_exit) {
+                    // The first sample after leaving a vehicle may contain
+                    // inherited vehicle momentum; be conservative for this tick.
+                    extrapolation.direction_factor = SMOOTH_EXTRAPOLATION_TURN_FACTOR;
+                }
             }
             else {
                 // Not interpolated (teleported, despawned, or a different
