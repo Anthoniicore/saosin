@@ -351,12 +351,16 @@ namespace Chimera {
                 auto parent_index = previous_tick[i].parent.index.index;
                 if(parent_index < OBJECT_BUFFER_SIZE) {
                     const auto &previous_vehicle = previous_tick[parent_index];
-                    const auto &current_vehicle = current_tick[parent_index];
-                    if(previous_vehicle.interpolate && current_vehicle.interpolate &&
-                       previous_vehicle.tag_id == current_vehicle.tag_id) {
-                        float vehicle_dx = current_vehicle.center.x - previous_vehicle.center.x;
-                        float vehicle_dy = current_vehicle.center.y - previous_vehicle.center.y;
-                        float vehicle_dz = current_vehicle.center.z - previous_vehicle.center.z;
+                    // Read the live parent directly instead of relying on
+                    // current_tick[parent_index], whose copy order may not
+                    // have reached the vehicle yet.
+                    auto *vehicle = object_table.get_dynamic_object(previous_tick[i].parent);
+                    if(previous_vehicle.interpolate && vehicle &&
+                       vehicle->type == OBJECT_TYPE_VEHICLE &&
+                       previous_vehicle.tag_id == vehicle->tag_id) {
+                        float vehicle_dx = vehicle->center_position.x - previous_vehicle.center.x;
+                        float vehicle_dy = vehicle->center_position.y - previous_vehicle.center.y;
+                        float vehicle_dz = vehicle->center_position.z - previous_vehicle.center.z;
                         float vehicle_travel = std::sqrt(vehicle_dx * vehicle_dx + vehicle_dy * vehicle_dy + vehicle_dz * vehicle_dz);
                         max_interpolation_distance += std::min(vehicle_travel, 12.5f);
                     }
